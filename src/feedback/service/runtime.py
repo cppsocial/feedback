@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -10,6 +11,8 @@ from feedback.protocol.github.oauth import OAuthClient
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner
 from feedback.service.reaction_cache import ReactionRefresher
+
+logger = logging.getLogger("feedback.runtime")
 
 
 @dataclass(slots=True)
@@ -56,4 +59,10 @@ class FeedbackRuntime:
 
 def _consume_task(task: asyncio.Task[int]) -> None:
     if not task.cancelled():
-        task.exception()
+        error = task.exception()
+        if error is not None:
+            logger.warning(
+                "Background reaction refresh failed: error_type=%s error=%s",
+                type(error).__name__,
+                error,
+            )

@@ -1,6 +1,7 @@
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
+import pytest
 from starlette.testclient import TestClient
 
 from feedback.app import create_app
@@ -56,6 +57,84 @@ def test_authorize_and_exchange_are_stateless_and_origin_bound(config: Config) -
     )
     assert exchange.headers["cache-control"] == "no-store, private"
     assert exchanged["repository_id"] == ["R_repo"]
+
+
+def test_exchange_bounds_nonexpiring_github_token_to_eight_hours(config: Config) -> None:
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"access_token": "ghu_user"})
+        )
+    )
+    oauth = OAuthClient(
+        client_id="Iv1.client",
+        client_secret="client-secret",
+        callback_url=config.service.oauth_callback,
+        signer=StateSigner(b"k" * 32, clock=lambda: 1_000),
+        http=http,
+        clock=lambda: 1_000,
+    )
+    grants = CreationGrantSigner(b"k" * 32, clock=lambda: 1_000)
+    with TestClient(create_app(config, clock=lambda: 1_000, oauth=oauth, grants=grants)) as client:
+        authorize = client.post(
+            "/v1/sites/cpp-social/oauth/authorize",
+            headers={"Origin": "https://cpp.social"},
+            json={"challenge": pkce_challenge(VERIFIER), "nonce": NONCE},
+        )
+        exchange = client.post(
+            "/v1/sites/cpp-social/oauth/exchange",
+            headers={"Origin": "https://cpp.social"},
+            json={
+                "code": "temporary-code",
+                "state": authorize.json()["state"],
+                "verifier": VERIFIER,
+            },
+        )
+
+    assert exchange.status_code == 200
+    assert exchange.json()["expires_at"] == 29_800
+
+
+def test_exchange_logs_safe_upstream_failure_details(
+    config: Config, caplog: pytest.LogCaptureFixture
+) -> None:
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                headers={"x-github-request-id": "request-123"},
+                json={"error": "bad_verification_code", "error_description": "secret detail"},
+            )
+        )
+    )
+    oauth = OAuthClient(
+        client_id="Iv1.client",
+        client_secret="client-secret",
+        callback_url=config.service.oauth_callback,
+        signer=StateSigner(b"k" * 32, clock=lambda: 1_000),
+        http=http,
+        clock=lambda: 1_000,
+    )
+    grants = CreationGrantSigner(b"k" * 32, clock=lambda: 1_000)
+    with TestClient(create_app(config, clock=lambda: 1_000, oauth=oauth, grants=grants)) as client:
+        authorize = client.post(
+            "/v1/sites/cpp-social/oauth/authorize",
+            headers={"Origin": "https://cpp.social"},
+            json={"challenge": pkce_challenge(VERIFIER), "nonce": NONCE},
+        )
+        response = client.post(
+            "/v1/sites/cpp-social/oauth/exchange",
+            headers={"Origin": "https://cpp.social"},
+            json={
+                "code": "temporary-code",
+                "state": authorize.json()["state"],
+                "verifier": VERIFIER,
+            },
+        )
+
+    assert response.status_code == 400
+    assert "upstream_code=bad_verification_code" in caplog.text
+    assert "github_request_id=request-123" in caplog.text
+    assert "secret detail" not in caplog.text
 
 
 def test_oauth_rejects_origin_content_type_and_duplicate_fields(config: Config) -> None:

@@ -11,9 +11,21 @@ from feedback.service.oauth_state import OAuthState, StateSigner
 
 
 class OAuthError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        reason: str,
+        status: int | None = None,
+        upstream_code: str | None = None,
+        request_id: str | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
+        self.reason = reason
+        self.status = status
+        self.upstream_code = upstream_code
+        self.request_id = request_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,17 +92,40 @@ class OAuthClient:
                 },
             )
         except httpx.TimeoutException as exc:
-            raise OAuthError("oauth_exchange_ambiguous") from exc
-        if response.status_code != 200:
-            raise OAuthError("oauth_exchange_failed")
+            raise OAuthError("oauth_exchange_ambiguous", reason="timeout") from exc
+        except httpx.RequestError as exc:
+            raise OAuthError("oauth_exchange_failed", reason="transport_error") from exc
         try:
             body = response.json()
         except ValueError as exc:
-            raise OAuthError("oauth_exchange_failed") from exc
-        if not isinstance(body, dict) or body.get("error"):
-            raise OAuthError("oauth_exchange_failed")
+            raise OAuthError(
+                "oauth_exchange_failed",
+                reason="invalid_json",
+                status=response.status_code,
+                request_id=response.headers.get("x-github-request-id"),
+            ) from exc
+        if not isinstance(body, dict):
+            raise OAuthError(
+                "oauth_exchange_failed",
+                reason="invalid_payload",
+                status=response.status_code,
+                request_id=response.headers.get("x-github-request-id"),
+            )
+        upstream_code = body.get("error")
+        if response.status_code != 200 or isinstance(upstream_code, str):
+            raise OAuthError(
+                "oauth_exchange_failed",
+                reason="upstream_rejected",
+                status=response.status_code,
+                upstream_code=upstream_code if isinstance(upstream_code, str) else None,
+                request_id=response.headers.get("x-github-request-id"),
+            )
         token = body.get("access_token")
         expires_in = body.get("expires_in")
+        # GitHub Apps may disable expiring user access tokens. Such responses do
+        # not include expires_in; keep our browser session bounded to eight hours.
+        if expires_in is None:
+            expires_in = 8 * 60 * 60
         if (
             not isinstance(token, str)
             or not token.startswith("ghu_")
@@ -98,5 +133,10 @@ class OAuthClient:
             or not isinstance(expires_in, int)
             or not 1 <= expires_in <= 8 * 60 * 60
         ):
-            raise OAuthError("oauth_exchange_failed")
+            raise OAuthError(
+                "oauth_exchange_failed",
+                reason="invalid_token_payload",
+                status=response.status_code,
+                request_id=response.headers.get("x-github-request-id"),
+            )
         return AccessToken(token, int(self._clock()) + expires_in), verified_state

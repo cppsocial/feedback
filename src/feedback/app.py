@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import time
@@ -31,6 +32,8 @@ from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner, StateSigner
 from feedback.service.reaction_cache import ReactionRefresher
 from feedback.service.runtime import FeedbackRuntime
+
+logger = logging.getLogger("feedback.runtime")
 
 
 def create_app(
@@ -88,6 +91,11 @@ def create_app(
             discussions=resolved_discussions,
         )
         application.state.services = services
+        logger.info(
+            "Feedback service started: public_origin=%s sites=%s",
+            loaded.service.public_origin,
+            ",".join(sorted(loaded.sites)),
+        )
         try:
             yield
         finally:

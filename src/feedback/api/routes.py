@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import cast
 
 from starlette.requests import Request
@@ -22,6 +23,9 @@ from feedback.protocol.github.oauth import OAuthError
 from feedback.service.discussions import DiscussionError
 from feedback.service.oauth_state import GrantError, StateError
 from feedback.service.runtime import FeedbackRuntime
+
+oauth_logger = logging.getLogger("feedback.oauth")
+github_logger = logging.getLogger("feedback.github")
 
 
 async def homepage(request: Request) -> Response:
@@ -114,6 +118,16 @@ async def oauth_exchange(request: Request) -> Response:
     except StateError:
         raise ApiError("invalid_oauth_state", "Authorization must be restarted.", 400) from None
     except OAuthError as exc:
+        oauth_logger.warning(
+            "GitHub OAuth exchange failed: reason=%s status=%s upstream_code=%s "
+            "github_request_id=%s site=%s origin=%s",
+            exc.reason,
+            exc.status,
+            exc.upstream_code,
+            exc.request_id,
+            site.id,
+            origin,
+        )
         status = 502 if exc.code == "oauth_exchange_ambiguous" else 400
         raise ApiError(exc.code, "Authorization must be restarted.", status) from exc
     if container.grants is None:
@@ -151,6 +165,15 @@ async def ensure_discussion(request: Request) -> Response:
     except DiscussionError as exc:
         raise ApiError("discussion_invalid", str(exc), 400) from exc
     except GitHubError as exc:
+        github_logger.warning(
+            "GitHub discussion request failed: code=%s status=%s github_request_id=%s "
+            "site=%s origin=%s",
+            exc.code,
+            exc.status,
+            exc.request_id,
+            site.id,
+            origin,
+        )
         raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
     return cors(
         JSONResponse(

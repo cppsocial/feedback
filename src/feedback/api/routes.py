@@ -110,7 +110,6 @@ async def oauth_exchange(request: Request) -> Response:
         token, state = await container.oauth.exchange(
             site=site.id,
             origin=origin,
-            repository_id=site.repository_id,
             code=body["code"],
             state=body["state"],
             verifier=body["verifier"],

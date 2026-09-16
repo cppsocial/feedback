@@ -72,7 +72,6 @@ class OAuthClient:
         *,
         site: str,
         origin: str,
-        repository_id: str,
         code: str,
         state: str,
         verifier: str,
@@ -88,7 +87,6 @@ class OAuthClient:
                     "code": code,
                     "redirect_uri": self._callback_url,
                     "code_verifier": verifier,
-                    "repository_id": repository_id,
                 },
             )
         except httpx.TimeoutException as exc:

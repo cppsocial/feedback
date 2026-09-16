@@ -56,7 +56,7 @@ def test_authorize_and_exchange_are_stateless_and_origin_bound(config: Config) -
         origin="https://cpp.social",
     )
     assert exchange.headers["cache-control"] == "no-store, private"
-    assert exchanged["repository_id"] == ["R_repo"]
+    assert "repository_id" not in exchanged
 
 
 def test_exchange_bounds_nonexpiring_github_token_to_eight_hours(config: Config) -> None:

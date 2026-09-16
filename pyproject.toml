@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cppsocial-feedback"
+version = "0.1.0"
+description = "Feedback API for cpp.social"
+requires-python = ">=3.14"
+dependencies = [
+    "starlette==1.6.0",
+    "uvicorn==0.53.0",
+    "httpx==0.28.1",
+    "PyJWT==2.14.0",
+    "cryptography==50.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy==2.3.1",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.3.0",
+    "ruff==0.16.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"feedback.database.migrations" = ["*.sql"]
+"feedback.database.queries" = ["*.sql"]
+"feedback.protocol.github.queries" = ["*.graphql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "tests"]

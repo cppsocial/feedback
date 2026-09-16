@@ -1,0 +1,17 @@
+mutation CreateFeedbackDiscussion($input: CreateDiscussionInput!) {
+  createDiscussion(input: $input) {
+    discussion {
+      id
+      number
+      title
+      url
+      locked
+      repository { id }
+      category { id }
+      reactionGroups {
+        content
+        users { totalCount }
+      }
+    }
+  }
+}

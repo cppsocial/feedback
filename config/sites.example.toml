@@ -1,0 +1,18 @@
+[service]
+public_origin = "https://feedback-api.example.com"
+oauth_callback = "https://feedback.example.com/v1/oauth/callback.html"
+data_directory = "/data/sites"
+github_app_id = 1
+github_client_id = "replace-with-github-client-id"
+github_concurrency = 2
+http_connect_timeout_seconds = 3
+http_request_timeout_seconds = 10
+
+[sites.example]
+origins = ["https://www.example.com"]
+mapping = "id"
+repository = "example/site"
+repository_id = "replace-with-repository-node-id"
+installation_id = 1
+category = "Resources"
+category_id = "replace-with-category-node-id"

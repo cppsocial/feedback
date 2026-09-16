@@ -1,0 +1,19 @@
+query FindFeedbackDiscussion($query: String!) {
+  search(query: $query, type: DISCUSSION, first: 10) {
+    nodes {
+      ... on Discussion {
+        id
+        number
+        title
+        url
+        locked
+        repository { id }
+        category { id }
+        reactionGroups {
+          content
+          users { totalCount }
+        }
+      }
+    }
+  }
+}

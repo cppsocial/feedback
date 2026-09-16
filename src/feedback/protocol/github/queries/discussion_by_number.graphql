@@ -1,0 +1,19 @@
+query FeedbackDiscussionByNumber($repository: ID!, $number: Int!) {
+  node(id: $repository) {
+    ... on Repository {
+      discussion(number: $number) {
+        id
+        number
+        title
+        url
+        locked
+        repository { id }
+        category { id }
+        reactionGroups {
+          content
+          users { totalCount }
+        }
+      }
+    }
+  }
+}

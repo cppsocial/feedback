@@ -209,6 +209,11 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+node_modules/
+runtime/dist/
+config/secrets/*
+!config/secrets/.gitkeep
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

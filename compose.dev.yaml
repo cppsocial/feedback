@@ -1,0 +1,43 @@
+name: cppsocial-feedback-dev
+
+services:
+  app:
+    build:
+      context: .
+      target: development
+    command:
+      - sh
+      - -c
+      - >-
+        pip install --no-deps --editable . &&
+        exec uvicorn feedback.app:app --host=0.0.0.0 --port=8080
+        --reload --no-server-header
+    environment:
+      FEEDBACK_CONFIG: /workspace/config/sites.dev.toml
+      FEEDBACK_DATA_DIRECTORY: /workspace/config/data
+      FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE: /workspace/config/secrets/github-app-private-key.pem
+      FEEDBACK_GITHUB_CLIENT_SECRET_FILE: /workspace/config/secrets/github-client-secret
+      FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE: /workspace/config/secrets/oauth-state-hmac-key
+    init: true
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - .:/workspace
+      - feedback-pip-cache:/root/.cache/pip
+    working_dir: /workspace
+
+  test:
+    build:
+      context: .
+      target: test
+    command: ["pytest", "-q"]
+    environment:
+      FEEDBACK_ENV: test
+    init: true
+    profiles: ["test"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+volumes:
+  feedback-pip-cache:

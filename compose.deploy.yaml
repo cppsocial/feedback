@@ -1,0 +1,71 @@
+name: cppsocial-feedback
+
+services:
+  feedback:
+    build:
+      context: .
+      target: production
+    image: feedback-service:local
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 1.0
+    environment:
+      FEEDBACK_CONFIG: /run/config/sites.toml
+      FEEDBACK_DATA_DIRECTORY: /data/sites
+      FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key
+      FEEDBACK_GITHUB_CLIENT_SECRET_FILE: /run/secrets/github-client-secret
+      FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE: /run/secrets/oauth-state-hmac-key
+      FEEDBACK_FORWARDED_ALLOW_IPS: ${FEEDBACK_FORWARDED_ALLOW_IPS:-127.0.0.1}
+      FEEDBACK_LIMIT_CONCURRENCY: ${FEEDBACK_LIMIT_CONCURRENCY:-64}
+      FEEDBACK_KEEP_ALIVE_SECONDS: ${FEEDBACK_KEEP_ALIVE_SECONDS:-5}
+    ports:
+      - "127.0.0.1:${FEEDBACK_HOST_PORT:-18080}:8080"
+    volumes:
+      - ${FEEDBACK_CONFIG_FILE:-./config/sites.toml}:/run/config/sites.toml:ro
+      - feedback-data:/data
+    secrets:
+      - github-app-private-key
+      - github-client-secret
+      - oauth-state-hmac-key
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; socket.create_connection(('127.0.0.1', 8080), 2).close()"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    stop_grace_period: 20s
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  github-app-private-key:
+    file: ${FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE:-./config/secrets/github-app-private-key.pem}
+  github-client-secret:
+    file: ${FEEDBACK_GITHUB_CLIENT_SECRET_FILE:-./config/secrets/github-client-secret}
+  oauth-state-hmac-key:
+    file: ${FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE:-./config/secrets/oauth-state-hmac-key}
+
+volumes:
+  feedback-data:

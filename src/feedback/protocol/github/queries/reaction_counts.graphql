@@ -1,0 +1,15 @@
+query FeedbackReactionCounts($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Discussion {
+      id
+      locked
+      updatedAt
+      reactionGroups {
+        content
+        users {
+          totalCount
+        }
+      }
+    }
+  }
+}

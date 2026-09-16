@@ -1,0 +1,34 @@
+name: Container
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build --target test -t feedback-test:${{ github.sha }} .
+      - run: docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m feedback-test:${{ github.sha }}
+      - run: docker build --target production -t feedback:${{ github.sha }} .
+      - name: Verify production image policy
+        run: |
+          test "$(docker image inspect feedback:${{ github.sha }} --format '{{.Config.User}}')" = "10001:10001"
+          docker run --rm --read-only --cap-drop=ALL \
+            --security-opt=no-new-privileges --pids-limit=64 --memory=256m \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001 \
+            --entrypoint python feedback:${{ github.sha }} \
+            -c 'import os; assert os.getuid() == 10001; import feedback'
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: feedback:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

@@ -1,0 +1,27 @@
+[service]
+public_origin = "https://feedback-api.cpp.social"
+oauth_callback = "https://feedback.cpp.social/v1/oauth/callback.html"
+data_directory = "/data/sites"
+github_app_id = 4961716
+github_client_id = "Iv23lij7PpR7LjpKa1um"
+github_concurrency = 2
+http_connect_timeout_seconds = 3
+http_request_timeout_seconds = 10
+
+[sites.feedback-cpp-social]
+origins = ["https://feedback.cpp.social"]
+mapping = "id"
+repository = "cppsocial/feedback"
+repository_id = "R_kgDOUc9png"
+installation_id = 162105624
+category = "General"
+category_id = "DIC_kwDOUc9pns4DFwQt"
+
+[sites.cpp-social]
+origins = ["https://cpp.social"]
+mapping = "id"
+repository = "cppsocial/site"
+repository_id = "R_kgDOSOfNQQ"
+installation_id = 162105624
+category = "Resources"
+category_id = "DIC_kwDOSOfNQc4DFW7W"

@@ -1,0 +1,36 @@
+body {
+  background: #fafafa;
+  color: #202124;
+  font: 16px system-ui, sans-serif;
+  margin: 0 auto;
+  max-width: 42rem;
+  padding: 3rem 1.5rem;
+}
+
+main {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 0.75rem;
+  padding: 2rem;
+}
+
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  margin: 2rem 0;
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+  padding: 0.6rem 1rem;
+}
+
+button[aria-pressed="true"] {
+  background: #fff4bd;
+}
+
+#status {
+  color: #555;
+  min-height: 1.5em;
+}

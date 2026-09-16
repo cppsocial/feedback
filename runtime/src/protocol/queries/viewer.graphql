@@ -1,0 +1,6 @@
+query FeedbackViewer {
+  viewer {
+    id
+    login
+  }
+}

@@ -1,0 +1,6 @@
+# Runtime dependencies. Keep direct dependencies pinned; update them deliberately.
+starlette==1.6.0
+uvicorn==0.53.0
+httpx==0.28.1
+PyJWT==2.14.0
+cryptography==50.0.1

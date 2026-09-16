@@ -1,0 +1,25 @@
+name: Python
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pip install --no-deps --editable .
+      - run: ruff format --check src tests
+      - run: ruff check src tests
+      - run: mypy --strict src tests
+      - run: pytest -q

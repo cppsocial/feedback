@@ -1,0 +1,40 @@
+{
+  "name": "cppsocial feedback",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "target": "development"
+  },
+  "containerEnv": {
+    "FEEDBACK_CONFIG": "${containerWorkspaceFolder}/config/sites.dev.toml",
+    "FEEDBACK_DATA_DIRECTORY": "${containerWorkspaceFolder}/.dev/data"
+  },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "Feedback API",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteUser": "root",
+  "postCreateCommand": "pip install --no-deps --editable .",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "dbaeumer.vscode-eslint"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
+    }
+  }
+}

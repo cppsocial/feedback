@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://feedback-api.cpp.social https://api.github.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+    <link rel="stylesheet" href="/example/style.css">
+    <title>Feedback integration example</title>
+  </head>
+  <body>
+    <main>
+      <h1>Feedback integration example</h1>
+      <p>This small page exercises cached counts, GitHub authentication, direct voting, and local stars.</p>
+      <p>API: <code id="api-origin"></code></p>
+      <div class="controls" aria-label="Feedback controls">
+        <button id="up" type="button">▲ 0</button>
+        <button id="down" type="button">▼ 0</button>
+        <button id="star" type="button" aria-pressed="false">★ Star</button>
+      </div>
+      <p id="status" role="status">Loading…</p>
+    </main>
+    <script src="{{EXAMPLE_SCRIPT}}"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+# Local placeholder configuration for the development container.
+# Add site definitions and local-only secrets under .dev/ as the API is built.
+[service]
+public_origin = "http://localhost:8080"
+oauth_callback = "http://localhost:8081/v1/oauth/callback.html"
+data_directory = ".dev/data"
+github_app_id = 4961716
+github_client_id = "Iv23lij7PpR7LjpKa1um"
+github_concurrency = 2
+http_connect_timeout_seconds = 3
+http_request_timeout_seconds = 10
+
+[sites.feedback-cpp-social]
+origins = ["https://feedback.cpp.social"]
+mapping = "id"
+repository = "cppsocial/feedback"
+repository_id = "R_kgDOUc9png"
+installation_id = 162105624
+category = "General"
+category_id = "DIC_kwDOUc9pns4DFwQt"

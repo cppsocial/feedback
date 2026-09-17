@@ -1,9 +1,9 @@
-import { FeedbackClient } from "../api/client.js";
+import { FeedbackClient, FeedbackError } from "../api/client.js";
 import { Authentication } from "../auth/controller.js";
 import { PendingVoteStore } from "../auth/pending-vote.js";
 import { trustedOrigin } from "../auth/origin.js";
 import { Stars } from "../feedback/stars.js";
-import { GitHubRequestError, viewerVote, vote, type Vote } from "../protocol/github.js";
+import type { Vote } from "../protocol/github.js";
 
 const parameters = new URLSearchParams(location.search);
 const site = parameters.get("site") ?? "feedback-cpp-social";
@@ -65,13 +65,12 @@ async function castVote(requested: Vote): Promise<void> {
       const discussion = await client.ensure(resource, token.creationGrant);
       discussionId = discussion.id;
     }
-    const current = await viewerVote(token, discussionId);
-    const result = await vote(token, discussionId, current, pending.vote);
+    const result = await client.vote(resource.key, pending.vote, token);
     render(result.up, result.down);
     status.textContent = result.viewer === "none" ? "Vote removed." : `${result.viewer} vote saved.`;
   } catch (error) {
     pendingVotes.clear();
-    if (error instanceof GitHubRequestError && error.status === 401) authentication.clear();
+    if (error instanceof FeedbackError && error.status === 401) authentication.clear();
     showError(error);
   } finally {
     disable(false);

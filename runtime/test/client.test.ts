@@ -77,3 +77,30 @@ void test("default browser fetch keeps its global receiver", async () => {
 
   assert.equal(called, true);
 });
+
+void test("votes are submitted through the service with the user token", async () => {
+  let request: Request | undefined;
+  const fetch = (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+    request = new Request(input, init);
+    return Promise.resolve(Response.json({
+      v: 1,
+      up: 12,
+      down: 3,
+      viewer: "up",
+    }));
+  };
+  const client = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social",
+    site: "cpp-social",
+    fetch,
+  });
+  const token = { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" };
+
+  const result = await client.vote("feedback/example", "up", token);
+
+  assert.ok(request);
+  assert.equal(request.url, "https://feedback-api.cpp.social/v1/sites/cpp-social/votes");
+  assert.equal(request.headers.get("authorization"), "Bearer ghu_user");
+  assert.deepEqual(await request.json(), { key: "feedback/example", vote: "up" });
+  assert.deepEqual(result, { up: 12, down: 3, viewer: "up" });
+});

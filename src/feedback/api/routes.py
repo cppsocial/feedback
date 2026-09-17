@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextlib import suppress
 from typing import cast
 
 from starlette.requests import Request
@@ -22,7 +23,9 @@ from feedback.protocol.github.client import GitHubError
 from feedback.protocol.github.oauth import OAuthError
 from feedback.service.discussions import DiscussionError
 from feedback.service.oauth_state import GrantError, StateError
+from feedback.service.resources import ResourceError, validate_resource_id
 from feedback.service.runtime import FeedbackRuntime
+from feedback.service.votes import VoteError
 
 oauth_logger = logging.getLogger("feedback.oauth")
 github_logger = logging.getLogger("feedback.github")
@@ -39,9 +42,11 @@ async def reactions(request: Request) -> Response:
         assert origin is not None
         return preflight(origin, method="GET", headers="If-None-Match")
     keys = resource_keys(request.query_params, site.max_batch_size)
-    now = int(container.clock())
     cached = container.databases[site.id].reactions(keys)
-    container.schedule_refresh(site, cached)
+    with suppress(GitHubError):
+        await container.refresh_stale(site, cached)
+    cached = container.databases[site.id].reactions(keys)
+    now = int(container.clock())
     items: dict[str, dict[str, str | int | bool | None]] = {}
     for key in keys:
         item = cached.get(key)
@@ -60,7 +65,10 @@ async def reactions(request: Request) -> Response:
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     etag = f'"{hashlib.sha256(body).hexdigest()}"'
     headers = {
-        "Cache-Control": "public, max-age=30, stale-while-revalidate=300",
+        # Revalidate with the service so a successful vote is visible after a
+        # reload. GitHub traffic is still bounded by the server-side freshness
+        # window and coalesced refresh task.
+        "Cache-Control": "no-cache",
         "ETag": etag,
         "Vary": "Origin",
     }
@@ -183,6 +191,52 @@ async def ensure_discussion(request: Request) -> Response:
     )
 
 
+async def submit_vote(request: Request) -> Response:
+    container, site, origin = site_context(request, require_origin=True)
+    assert origin is not None
+    if container.votes is None:
+        raise ApiError("service_unavailable", "Voting is unavailable.", 503)
+    if request.method == "OPTIONS":
+        return preflight(origin, method="POST", headers="Authorization, Content-Type")
+    body = await json_strings(request, frozenset({"key", "vote"}))
+    try:
+        resource_id = validate_resource_id(body["key"])
+    except ResourceError:
+        raise ApiError("invalid_vote", "Vote parameters are invalid.", 400) from None
+    if body["vote"] not in {"up", "down"}:
+        raise ApiError("invalid_vote", "Vote parameters are invalid.", 400)
+    cached = container.databases[site.id].reactions([resource_id])
+    with suppress(GitHubError):
+        await container.refresh_stale(site, cached)
+    try:
+        result = await container.votes.vote(
+            container.databases[site.id],
+            resource_id=resource_id,
+            requested=body["vote"],
+            token=bearer_token(request),
+        )
+    except VoteError as exc:
+        raise ApiError("discussion_not_found", str(exc), 404) from exc
+    except GitHubError as exc:
+        github_logger.warning(
+            "GitHub vote failed: code=%s status=%s github_request_id=%s site=%s origin=%s",
+            exc.code,
+            exc.status,
+            exc.request_id,
+            site.id,
+            origin,
+        )
+        status = 401 if exc.status == 401 else 502
+        raise ApiError("github_vote_failed", "GitHub rejected the vote.", status) from exc
+    return cors(
+        JSONResponse(
+            {"v": 1, "up": result.up, "down": result.down, "viewer": result.viewer},
+            headers={"Cache-Control": "no-store"},
+        ),
+        origin,
+    )
+
+
 async def api_error(request: Request, error: Exception) -> Response:
     assert isinstance(error, ApiError)
     response = error_response(error)
@@ -193,6 +247,20 @@ async def api_error(request: Request, error: Exception) -> Response:
 
 def services(request: Request) -> FeedbackRuntime:
     return cast(FeedbackRuntime, request.app.state.services)
+
+
+def bearer_token(request: Request) -> str:
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    if (
+        separator != " "
+        or scheme.lower() != "bearer"
+        or not token.startswith("ghu_")
+        or not 8 <= len(token) <= 512
+        or any(character.isspace() for character in token)
+    ):
+        raise ApiError("invalid_token", "A GitHub user token is required.", 401)
+    return token
 
 
 def site_context(

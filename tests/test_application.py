@@ -29,7 +29,7 @@ def test_reactions_returns_sorted_deduplicated_cached_and_unknown_items(
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://cpp.social"
-    assert response.headers["cache-control"].startswith("public")
+    assert response.headers["cache-control"] == "no-cache"
     assert list(response.json()["items"]) == ["known", "unknown"]
     assert response.json()["items"]["known"] == {
         "id": "D_known",

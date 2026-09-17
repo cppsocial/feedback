@@ -11,6 +11,7 @@ from feedback.protocol.github.oauth import OAuthClient
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner
 from feedback.service.reaction_cache import ReactionRefresher
+from feedback.service.votes import VoteService
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -24,15 +25,20 @@ class FeedbackRuntime:
     refresher: ReactionRefresher | None = None
     grants: CreationGrantSigner | None = None
     discussions: DiscussionService | None = None
+    votes: VoteService | None = None
     _refresh_tasks: dict[str, asyncio.Task[int]] = field(default_factory=dict)
     _refresh_last: dict[tuple[str, str], float] = field(default_factory=dict)
 
-    def schedule_refresh(self, site: SiteConfig, cached: dict[str, ReactionCounts]) -> None:
+    async def refresh_stale(self, site: SiteConfig, cached: dict[str, ReactionCounts]) -> None:
         if self.refresher is None:
             return
         running = self._refresh_tasks.get(site.id)
         if running is not None and not running.done():
-            return
+            await asyncio.shield(running)
+            # The in-flight batch may have covered the same resources. Re-read
+            # their timestamps before deciding whether this request needs a
+            # second batch for different keys.
+            cached = self.databases[site.id].reactions(cached.keys())
         now = self.clock()
         eligible: list[ReactionCounts] = []
         for key, value in cached.items():
@@ -48,6 +54,7 @@ class FeedbackRuntime:
         task = asyncio.create_task(self.refresher.refresh(site, self.databases[site.id], eligible))
         self._refresh_tasks[site.id] = task
         task.add_done_callback(_consume_task)
+        await asyncio.shield(task)
 
     async def close(self) -> None:
         tasks = list(self._refresh_tasks.values())

@@ -15,6 +15,7 @@ REACTIONS = load("reactions")
 DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
 UPDATE_REACTIONS = load("update_reactions")
+ADJUST_REACTIONS = load("adjust_reactions")
 
 
 class DatabaseError(RuntimeError):
@@ -124,3 +125,18 @@ class SiteDatabase:
                 (up, down, locked, github_updated_at, fetched_at, node_id),
             )
         return cursor.rowcount == 1
+
+    def adjust_reactions(
+        self,
+        *,
+        resource_id: str,
+        node_id: str,
+        up_delta: int,
+        down_delta: int,
+    ) -> tuple[int, int] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                ADJUST_REACTIONS,
+                (up_delta, down_delta, resource_id, node_id),
+            ).fetchone()
+        return (row[0], row[1]) if row is not None else None

@@ -144,18 +144,14 @@ async def test_discovers_exact_discussion_in_configured_repository_and_category(
         }
     )
 
-    result = await GitHubDiscussions(github).find(
-        config.sites["cpp-social"], "feedback/example"
-    )
+    result = await GitHubDiscussions(github).find(config.sites["cpp-social"], "feedback/example")
 
     assert result is not None
     assert result.node_id == "D_example"
     assert github.calls == [
         (
             123,
-            {
-                "query": 'repo:cppsocial/site category:"Resources" in:title "feedback/example"'
-            },
+            {"query": 'repo:cppsocial/site category:"Resources" in:title "feedback/example"'},
         )
     ]
 
@@ -181,8 +177,6 @@ async def test_discovery_rejects_results_outside_configured_category(config: Con
         }
     )
 
-    result = await GitHubDiscussions(github).find(
-        config.sites["cpp-social"], "feedback/example"
-    )
+    result = await GitHubDiscussions(github).find(config.sites["cpp-social"], "feedback/example")
 
     assert result is None

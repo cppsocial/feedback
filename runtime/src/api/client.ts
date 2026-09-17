@@ -1,5 +1,6 @@
 import { validateResourceId } from "../feedback/resources.js";
 import type { Resource } from "../feedback/resources.js";
+import type { Vote, VoteResult } from "../protocol/github.js";
 
 export interface ReactionState {
   id: string | null;
@@ -111,11 +112,47 @@ export class FeedbackClient {
     return { id: payload.id, number: payload.number };
   }
 
-  async #post(path: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  async vote(
+    key: string,
+    requested: Vote,
+    token: AccessToken,
+    signal?: AbortSignal,
+  ): Promise<VoteResult> {
+    validateResourceId(key);
+    const payload = await this.#post(
+      "votes",
+      { key, vote: requested },
+      signal,
+      token.value,
+    );
+    const up = payload.up;
+    const down = payload.down;
+    const viewer = payload.viewer;
+    if (
+      !Number.isSafeInteger(up) || (up as number) < 0 ||
+      !Number.isSafeInteger(down) || (down as number) < 0 ||
+      (viewer !== "up" && viewer !== "down" && viewer !== "none")
+    ) {
+      throw new TypeError("Invalid vote response");
+    }
+    return { up: up as number, down: down as number, viewer };
+  }
+
+  async #post(
+    path: string,
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    accessToken?: string,
+  ): Promise<Record<string, unknown>> {
     const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/${path}`, this.#apiOrigin);
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    if (accessToken !== undefined) headers.Authorization = `Bearer ${accessToken}`;
     const init: RequestInit = {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     };
     if (signal) init.signal = signal;

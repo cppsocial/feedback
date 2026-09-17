@@ -22,16 +22,19 @@ from feedback.api.routes import (
     oauth_authorize,
     oauth_exchange,
     reactions,
+    submit_vote,
 )
 from feedback.config import Config, load_config_from_environment
 from feedback.database.sqlite import SiteDatabase
 from feedback.protocol.github.client import GitHubClient
 from feedback.protocol.github.discussions import GitHubDiscussions
 from feedback.protocol.github.oauth import OAuthClient
+from feedback.protocol.github.votes import GitHubVotes
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner, StateSigner
 from feedback.service.reaction_cache import ReactionRefresher
 from feedback.service.runtime import FeedbackRuntime
+from feedback.service.votes import VoteService
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -44,6 +47,7 @@ def create_app(
     refresher: ReactionRefresher | None = None,
     grants: CreationGrantSigner | None = None,
     discussions: DiscussionService | None = None,
+    votes: VoteService | None = None,
 ) -> Starlette:
     if oauth is not None and grants is None:
         raise ValueError("OAuth and creation grants must be configured together")
@@ -56,6 +60,7 @@ def create_app(
         resolved_refresher: ReactionRefresher | None
         resolved_grants: CreationGrantSigner | None
         resolved_discussions: DiscussionService | None
+        resolved_votes: VoteService | None
         if config is None and oauth is None:
             owned_http = httpx.AsyncClient(
                 timeout=httpx.Timeout(
@@ -70,11 +75,13 @@ def create_app(
             github = _github_client(loaded, owned_http, clock)
             resolved_refresher = ReactionRefresher(github, clock=clock)
             resolved_discussions = DiscussionService(GitHubDiscussions(github))
+            resolved_votes = VoteService(GitHubVotes(owned_http))
         else:
             resolved_oauth = oauth
             resolved_refresher = refresher
             resolved_grants = grants
             resolved_discussions = discussions
+            resolved_votes = votes
         databases = {
             site_id: SiteDatabase(loaded.service.data_directory / f"{site_id}.sqlite3")
             for site_id in loaded.sites
@@ -89,6 +96,7 @@ def create_app(
             refresher=resolved_refresher,
             grants=resolved_grants,
             discussions=resolved_discussions,
+            votes=resolved_votes,
         )
         application.state.services = services
         logger.info(
@@ -120,6 +128,11 @@ def create_app(
             Route(
                 "/v1/sites/{site}/discussions/ensure",
                 ensure_discussion,
+                methods=["POST", "OPTIONS"],
+            ),
+            Route(
+                "/v1/sites/{site}/votes",
+                submit_vote,
                 methods=["POST", "OPTIONS"],
             ),
         ],

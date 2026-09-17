@@ -10,9 +10,15 @@ http_request_timeout_seconds = 10
 
 [sites.example]
 origins = ["https://www.example.com"]
-mapping = "id"
+mapping = "key"
 repository = "example/site"
 repository_id = "replace-with-repository-node-id"
 installation_id = 1
 category = "Resources"
 category_id = "replace-with-category-node-id"
+
+# Optional cache tuning; these are the defaults.
+# cache_fresh_seconds = 5
+# refresh_cooldown_seconds = 5
+# refresh_sweep_seconds = 86400
+# max_batch_size = 100

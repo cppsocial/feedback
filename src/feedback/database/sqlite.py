@@ -16,6 +16,7 @@ DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
 UPDATE_REACTIONS = load("update_reactions")
 ADJUST_REACTIONS = load("adjust_reactions")
+TRACKED_REACTIONS = load("tracked_reactions")
 
 
 class DatabaseError(RuntimeError):
@@ -78,6 +79,16 @@ class SiteDatabase:
         with self.connect() as connection:
             row = connection.execute(DISCUSSION, (resource_id,)).fetchone()
         return Discussion(*row) if row is not None else None
+
+    def tracked_reactions(
+        self, *, after: str, fetched_before: int, limit: int
+    ) -> list[tuple[str, ReactionCounts]]:
+        with self.connect() as connection:
+            rows = connection.execute(TRACKED_REACTIONS, (after, fetched_before, limit)).fetchall()
+        return [
+            (row[0], ReactionCounts(node_id=row[1], up=row[2], down=row[3], fetched_at=row[4]))
+            for row in rows
+        ]
 
     def put_discussion(
         self,

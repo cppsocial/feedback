@@ -13,17 +13,6 @@ in
       default = "/srv/feedback";
     };
 
-    port = mkOption {
-      type = types.port;
-      default = 18080;
-    };
-
-    forwardedAllowIps = mkOption {
-      type = types.str;
-      default = "172.17.0.1";
-      description = "Addresses trusted to supply forwarded headers to Uvicorn.";
-    };
-
     proxy = {
       enable = mkEnableOption "the feedback nginx virtual host" // { default = true; };
 
@@ -48,10 +37,6 @@ in
       requires = [ "docker.service" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
-      environment = {
-        FEEDBACK_FORWARDED_ALLOW_IPS = cfg.forwardedAllowIps;
-        FEEDBACK_HOST_PORT = toString cfg.port;
-      };
       unitConfig.ConditionPathExists = "${cfg.repositoryDirectory}/compose.deploy.yaml";
       serviceConfig = {
         Type = "simple";
@@ -89,7 +74,7 @@ in
         '';
         locations = {
           "~ ^/v1/sites/[a-z0-9-]+/(?:oauth/(?:authorize|exchange)|discussions/ensure)$" = {
-            proxyPass = "http://127.0.0.1:${toString cfg.port}";
+            proxyPass = "http://127.0.0.1:18080";
             extraConfig = ''
               limit_req zone=feedback_sensitive burst=5 nodelay;
               proxy_connect_timeout 3s;
@@ -98,7 +83,7 @@ in
             '';
           };
           "/" = {
-            proxyPass = "http://127.0.0.1:${toString cfg.port}";
+            proxyPass = "http://127.0.0.1:18080";
             extraConfig = ''
               limit_req zone=feedback_general burst=30 nodelay;
               proxy_connect_timeout 3s;

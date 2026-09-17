@@ -59,7 +59,7 @@ async def reactions(request: Request) -> Response:
             "up": item.up,
             "down": item.down,
             "age": age,
-            "stale": age > site.cache_fresh_seconds,
+            "stale": age >= site.cache_fresh_seconds,
         }
     payload = {"v": 1, "site": site.id, "items": items}
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
@@ -127,13 +127,12 @@ async def oauth_exchange(request: Request) -> Response:
     except OAuthError as exc:
         oauth_logger.warning(
             "GitHub OAuth exchange failed: reason=%s status=%s upstream_code=%s "
-            "github_request_id=%s site=%s origin=%s",
+            "github_request_id=%s site=%s",
             exc.reason,
             exc.status,
             exc.upstream_code,
             exc.request_id,
             site.id,
-            origin,
         )
         status = 502 if exc.code == "oauth_exchange_ambiguous" else 400
         raise ApiError(exc.code, "Authorization must be restarted.", status) from exc
@@ -173,13 +172,11 @@ async def ensure_discussion(request: Request) -> Response:
         raise ApiError("discussion_invalid", str(exc), 400) from exc
     except GitHubError as exc:
         github_logger.warning(
-            "GitHub discussion request failed: code=%s status=%s github_request_id=%s "
-            "site=%s origin=%s",
+            "GitHub discussion request failed: code=%s status=%s github_request_id=%s site=%s",
             exc.code,
             exc.status,
             exc.request_id,
             site.id,
-            origin,
         )
         raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
     return cors(
@@ -219,12 +216,11 @@ async def submit_vote(request: Request) -> Response:
         raise ApiError("discussion_not_found", str(exc), 404) from exc
     except GitHubError as exc:
         github_logger.warning(
-            "GitHub vote failed: code=%s status=%s github_request_id=%s site=%s origin=%s",
+            "GitHub vote failed: code=%s status=%s github_request_id=%s site=%s",
             exc.code,
             exc.status,
             exc.request_id,
             site.id,
-            origin,
         )
         status = 401 if exc.status == 401 else 502
         raise ApiError("github_vote_failed", "GitHub rejected the vote.", status) from exc

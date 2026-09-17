@@ -135,6 +135,7 @@ def test_exchange_logs_safe_upstream_failure_details(
     assert "upstream_code=bad_verification_code" in caplog.text
     assert "github_request_id=request-123" in caplog.text
     assert "secret detail" not in caplog.text
+    assert "https://cpp.social" not in caplog.text
 
 
 def test_oauth_rejects_origin_content_type_and_duplicate_fields(config: Config) -> None:

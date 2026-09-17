@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import tomllib
 from collections.abc import Mapping
@@ -16,7 +15,7 @@ class ConfigError(ValueError):
 
 
 _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
-_MAPPINGS = frozenset({"id", "title", "url", "pathname", "specific", "number"})
+_MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
 _SERVICE_KEYS = frozenset(
     {
         "public_origin",
@@ -39,8 +38,8 @@ _SITE_KEYS = frozenset(
         "category",
         "category_id",
         "cache_fresh_seconds",
-        "cache_stale_seconds",
         "refresh_cooldown_seconds",
+        "refresh_sweep_seconds",
         "max_batch_size",
     }
 )
@@ -68,9 +67,9 @@ class SiteConfig:
     installation_id: int
     category: str
     category_id: str
-    cache_fresh_seconds: int = 60
-    cache_stale_seconds: int = 900
-    refresh_cooldown_seconds: int = 15
+    cache_fresh_seconds: int = 5
+    refresh_cooldown_seconds: int = 5
+    refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
 
 
@@ -149,21 +148,15 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             installation_id=_bounded_int(value, "installation_id", 1, 2**63 - 1),
             category=_string(value, "category"),
             category_id=_string(value, "category_id"),
-            cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 60),
-            cache_stale_seconds=_bounded_int(value, "cache_stale_seconds", 1, 86400, 900),
-            refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 15),
+            cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 5),
+            refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 5),
+            refresh_sweep_seconds=_bounded_int(
+                value, "refresh_sweep_seconds", 3600, 604_800, 86_400
+            ),
             max_batch_size=_bounded_int(value, "max_batch_size", 1, 100, 100),
         )
-        if sites[site_id].cache_stale_seconds < sites[site_id].cache_fresh_seconds:
-            raise ConfigError(f"sites.{site_id} stale lifetime must be at least fresh lifetime")
 
     return Config(service, MappingProxyType(sites))
-
-
-def load_config_from_environment() -> Config:
-    path = Path(os.environ.get("FEEDBACK_CONFIG", "/run/config/sites.toml"))
-    override = os.environ.get("FEEDBACK_DATA_DIRECTORY")
-    return load_config(path, data_directory=Path(override) if override else None)
 
 
 def _table(value: Mapping[str, Any], key: str) -> dict[str, Any]:

@@ -31,7 +31,6 @@ CMD ["python", "-m", "feedback"]
 
 FROM development AS test
 
-ENV FEEDBACK_ENV=test
 COPY pyproject.toml ./
 COPY src ./src
 COPY tests ./tests
@@ -53,10 +52,7 @@ ENV VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONHASHSEED=random \
-    FEEDBACK_HOST=0.0.0.0 \
-    FEEDBACK_PORT=8080 \
-    FEEDBACK_WORKERS=1
+    PYTHONHASHSEED=random
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \

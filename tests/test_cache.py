@@ -1,5 +1,7 @@
 import asyncio
+import logging
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +86,9 @@ async def test_refreshes_known_nodes_and_preserves_missing_nodes(
 
 
 def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
-    config: Config, tmp_path: Path
+    config: Config, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.INFO, logger="feedback.runtime")
     database = SiteDatabase(tmp_path / "cpp-social.sqlite3")
     database.migrate()
     database.put_discussion(
@@ -131,6 +134,8 @@ def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
         "stale": False,
     }
     assert len(github.calls) == 1
+    assert "GitHub reaction refresh completed" in caplog.text
+    assert "site=cpp-social reason=requested nodes=1 updated=1" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -177,3 +182,104 @@ async def test_simultaneous_stale_reads_share_one_github_batch(
 
     assert len(github.calls) == 1
     assert store.reactions(["feedback/example"])["feedback/example"].up == 4
+
+
+@pytest.mark.asyncio
+async def test_refresh_window_preserves_then_replaces_tentative_counts(
+    config: Config, tmp_path: Path
+) -> None:
+    store = SiteDatabase(tmp_path / "site.sqlite3")
+    store.migrate()
+    store.put_discussion(
+        resource_id="feedback/example",
+        lookup_term="feedback/example",
+        node_id="D_example",
+        number=1,
+        title="feedback/example",
+        url="https://github.test/1",
+        up=9,
+        fetched_at=100,
+    )
+    data: dict[str, Any] = {
+        "nodes": [
+            {
+                "id": "D_example",
+                "locked": False,
+                "updatedAt": None,
+                "reactionGroups": [{"content": "THUMBS_UP", "users": {"totalCount": 7}}],
+            }
+        ]
+    }
+    github = FakeGitHub(data)
+    now = 104
+    site = replace(
+        config.sites["cpp-social"],
+        cache_fresh_seconds=5,
+        refresh_cooldown_seconds=5,
+    )
+    runtime = FeedbackRuntime(
+        config,
+        {"cpp-social": store},
+        lambda: now,
+        refresher=ReactionRefresher(github, clock=lambda: now),
+    )
+    store.adjust_reactions(
+        resource_id="feedback/example",
+        node_id="D_example",
+        up_delta=1,
+        down_delta=0,
+    )
+
+    await runtime.refresh_stale(site, store.reactions(["feedback/example"]))
+    assert github.calls == []
+    assert store.reactions(["feedback/example"])["feedback/example"].up == 10
+
+    now = 105
+    await runtime.refresh_stale(site, store.reactions(["feedback/example"]))
+
+    assert len(github.calls) == 1
+    authoritative = store.reactions(["feedback/example"])["feedback/example"]
+    assert (authoritative.up, authoritative.fetched_at) == (7, 105)
+
+
+@pytest.mark.asyncio
+async def test_daily_sweep_refreshes_only_old_tracked_discussions(
+    config: Config, tmp_path: Path
+) -> None:
+    store = SiteDatabase(tmp_path / "site.sqlite3")
+    store.migrate()
+    for key, fetched_at in (("old", 1), ("recent", 99_999)):
+        store.put_discussion(
+            resource_id=key,
+            lookup_term=key,
+            node_id=f"D_{key}",
+            number=1 if key == "old" else 2,
+            title=key,
+            url=f"https://github.test/{key}",
+            fetched_at=fetched_at,
+        )
+    github = FakeGitHub(
+        {
+            "nodes": [
+                {
+                    "id": "D_old",
+                    "locked": False,
+                    "updatedAt": None,
+                    "reactionGroups": [{"content": "THUMBS_UP", "users": {"totalCount": 6}}],
+                }
+            ]
+        }
+    )
+    site = replace(config.sites["cpp-social"], refresh_sweep_seconds=3600)
+    runtime = FeedbackRuntime(
+        Config(config.service, {"cpp-social": site}),
+        {"cpp-social": store},
+        lambda: 100_000,
+        refresher=ReactionRefresher(github, clock=lambda: 100_000),
+    )
+
+    await runtime.sweep_once()
+
+    assert github.calls == [(123, {"ids": ["D_old"]})]
+    assert store.reactions(["old"])["old"].up == 6
+    assert store.reactions(["recent"])["recent"].fetched_at == 99_999

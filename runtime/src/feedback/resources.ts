@@ -1,12 +1,42 @@
-export type Mapping = "id" | "title" | "url" | "pathname" | "specific" | "number";
+export type Mapping = "key" | "title" | "url" | "pathname" | "custom" | "number";
 
 export interface Resource {
   key: string;
   title?: string;
   url?: string;
   pathname?: string;
-  specific?: string;
+  custom?: string;
   number?: number;
+}
+
+export interface DocumentResourceOptions {
+  key: string;
+  document?: Document;
+  location?: Location;
+  titleSelectors?: readonly string[];
+  canonicalSelector?: string;
+  custom?: string;
+  number?: number;
+}
+
+const defaultTitleSelectors = ['meta[property="og:title"]', "title"];
+
+export function resourceFromDocument(options: DocumentResourceOptions): Resource {
+  const document = options.document ?? globalThis.document;
+  const location = options.location ?? globalThis.location;
+  const title = firstContent(document, options.titleSelectors ?? defaultTitleSelectors);
+  const canonical = document.querySelector(options.canonicalSelector ?? 'link[rel="canonical"]');
+  const href = canonical?.getAttribute("href") ?? location.href;
+  const url = new URL(href, document.baseURI);
+  url.hash = "";
+  return {
+    key: validateResourceId(options.key),
+    ...(title ? { title } : {}),
+    url: url.href,
+    pathname: url.pathname,
+    ...(options.custom !== undefined ? { custom: options.custom } : {}),
+    ...(options.number !== undefined ? { number: options.number } : {}),
+  };
 }
 
 const resourceId = /^[A-Za-z0-9](?:[A-Za-z0-9._~/-]{0,198}[A-Za-z0-9._~-])?$/;
@@ -21,7 +51,7 @@ export function validateResourceId(value: string): string {
 export function lookupTerm(mapping: Mapping, resource: Resource): string {
   validateResourceId(resource.key);
   switch (mapping) {
-    case "id":
+    case "key":
       return resource.key;
     case "title":
       return required(resource.title, "title");
@@ -39,8 +69,8 @@ export function lookupTerm(mapping: Mapping, resource: Resource): string {
       }
       return path;
     }
-    case "specific":
-      return required(resource.specific, "specific");
+    case "custom":
+      return required(resource.custom, "custom");
     case "number":
       if (!Number.isSafeInteger(resource.number) || (resource.number ?? 0) < 1) {
         throw new TypeError("Invalid discussion number");
@@ -55,4 +85,14 @@ function required(value: string | undefined, name: string): string {
     throw new TypeError(`Invalid ${name}`);
   }
   return normalized;
+}
+
+function firstContent(document: Document, selectors: readonly string[]): string | undefined {
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    const value = element?.getAttribute("content") ?? element?.textContent;
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+  }
+  return undefined;
 }

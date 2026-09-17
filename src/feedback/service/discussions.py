@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -8,6 +9,8 @@ from feedback.config import SiteConfig
 from feedback.database.sqlite import Discussion, SiteDatabase
 from feedback.protocol.github.discussions import GitHubDiscussion
 from feedback.service.resources import Resource, lookup_term
+
+logger = logging.getLogger("feedback.github")
 
 
 class DiscussionError(RuntimeError):
@@ -45,6 +48,9 @@ class DiscussionService:
                     title=term,
                     body=f"Feedback for [{resource.title or resource.key}]({canonical_url})",
                 )
+                action = "created"
+            else:
+                action = "discovered"
             database.put_discussion(
                 resource_id=resource.key,
                 lookup_term=term,
@@ -58,6 +64,12 @@ class DiscussionService:
             result = database.discussion(resource.key)
             if result is None:
                 raise RuntimeError("discussion was not stored")
+            logger.info(
+                "GitHub discussion %s: site=%s discussion_number=%s",
+                action,
+                site.id,
+                github.number,
+            )
             return result
 
 

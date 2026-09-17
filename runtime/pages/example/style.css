@@ -14,10 +14,28 @@ main {
   padding: 2rem;
 }
 
+.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 2rem 0;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.card h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
 .controls {
   display: flex;
   gap: 0.75rem;
-  margin: 2rem 0;
+  margin-top: 1rem;
 }
 
 button {

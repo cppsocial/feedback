@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 
@@ -19,6 +19,14 @@ class VoteResult:
     viewer: str
 
 
+class _VoteOperations(TypedDict):
+    removeUp: bool
+    removeDown: bool
+    addUp: bool
+    addDown: bool
+    finalOperation: str
+
+
 class GitHubVotes:
     def __init__(self, http: httpx.AsyncClient) -> None:
         self._http = http
@@ -28,40 +36,42 @@ class GitHubVotes:
         node = data.get("node")
         if not isinstance(node, dict) or not isinstance(node.get("reactionGroups"), list):
             raise GitHubError("github_malformed_response")
-        viewer = "none"
+        up = False
+        down = False
         for group in node["reactionGroups"]:
             if not isinstance(group, dict):
                 raise GitHubError("github_malformed_response")
             if group.get("viewerHasReacted") is True:
                 if group.get("content") == "THUMBS_UP":
-                    viewer = "up"
+                    up = True
                 elif group.get("content") == "THUMBS_DOWN":
-                    viewer = "down"
-        return viewer
+                    down = True
+        return _viewer_state(up, down)
 
     async def vote(
         self, token: str, discussion_id: str, current: str, requested: str
     ) -> VoteResult:
-        operation = _final_operation(current, requested)
+        operations = _vote_operations(current, requested)
         data = await self._graphql(
             token,
             _VOTE,
             {
                 "id": discussion_id,
-                "removeUp": current == "up",
-                "removeDown": current == "down",
-                "addUp": requested == "up" and current != "up",
-                "addDown": requested == "down" and current != "down",
+                "removeUp": operations["removeUp"],
+                "removeDown": operations["removeDown"],
+                "addUp": operations["addUp"],
+                "addDown": operations["addDown"],
             },
         )
-        result = data.get(operation)
+        result = data.get(operations["finalOperation"])
         subject = result.get("subject") if isinstance(result, dict) else None
         groups = subject.get("reactionGroups") if isinstance(subject, dict) else None
         if not isinstance(groups, list):
             raise GitHubError("github_malformed_response")
         up = 0
         down = 0
-        viewer = "none"
+        viewer_up = False
+        viewer_down = False
         for group in groups:
             if not isinstance(group, dict):
                 raise GitHubError("github_malformed_response")
@@ -73,12 +83,12 @@ class GitHubVotes:
             if content == "THUMBS_UP":
                 up = count
                 if group.get("viewerHasReacted") is True:
-                    viewer = "up"
+                    viewer_up = True
             elif content == "THUMBS_DOWN":
                 down = count
                 if group.get("viewerHasReacted") is True:
-                    viewer = "down"
-        return VoteResult(up, down, viewer)
+                    viewer_down = True
+        return VoteResult(up, down, _viewer_state(viewer_up, viewer_down))
 
     async def _graphql(
         self, token: str, query: str, variables: dict[str, object]
@@ -113,7 +123,33 @@ class GitHubVotes:
         return data
 
 
-def _final_operation(current: str, requested: str) -> str:
-    if current != requested:
-        return "addUp" if requested == "up" else "addDown"
-    return "removeUp" if requested == "up" else "removeDown"
+def _vote_operations(current: str, requested: str) -> _VoteOperations:
+    if current == "both":
+        return {
+            "removeUp": requested == "down",
+            "removeDown": requested == "up",
+            "addUp": False,
+            "addDown": False,
+            "finalOperation": "removeDown" if requested == "up" else "removeUp",
+        }
+    return {
+        "removeUp": current == "up",
+        "removeDown": current == "down",
+        "addUp": requested == "up" and current != "up",
+        "addDown": requested == "down" and current != "down",
+        "finalOperation": (
+            ("removeUp" if requested == "up" else "removeDown")
+            if current == requested
+            else ("addUp" if requested == "up" else "addDown")
+        ),
+    }
+
+
+def _viewer_state(up: bool, down: bool) -> str:
+    if up and down:
+        return "both"
+    if up:
+        return "up"
+    if down:
+        return "down"
+    return "none"

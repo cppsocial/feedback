@@ -10,14 +10,11 @@ services:
       - -c
       - >-
         pip install --no-deps --editable . &&
-        exec uvicorn feedback.app:app --host=0.0.0.0 --port=8080
-        --reload --no-server-header
-    environment:
-      FEEDBACK_CONFIG: /workspace/config/sites.dev.toml
-      FEEDBACK_DATA_DIRECTORY: /workspace/config/data
-      FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE: /workspace/config/secrets/github-app-private-key.pem
-      FEEDBACK_GITHUB_CLIENT_SECRET_FILE: /workspace/config/secrets/github-client-secret
-      FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE: /workspace/config/secrets/oauth-state-hmac-key
+        exec python -m feedback --config=/workspace/config/sites.dev.toml
+        --github-app-private-key-file=/workspace/config/secrets/github-app-private-key.pem
+        --github-client-secret-file=/workspace/config/secrets/github-client-secret
+        --oauth-state-hmac-key-file=/workspace/config/secrets/oauth-state-hmac-key
+        --host=0.0.0.0 --port=8080
     init: true
     ports:
       - "127.0.0.1:8080:8080"
@@ -31,8 +28,6 @@ services:
       context: .
       target: test
     command: ["pytest", "-q"]
-    environment:
-      FEEDBACK_ENV: test
     init: true
     profiles: ["test"]
     read_only: true

@@ -10,7 +10,7 @@ http_request_timeout_seconds = 10
 
 [sites.feedback-cpp-social]
 origins = ["https://feedback.cpp.social"]
-mapping = "id"
+mapping = "key"
 repository = "cppsocial/feedback"
 repository_id = "R_kgDOUc9png"
 installation_id = 162105624
@@ -19,7 +19,7 @@ category_id = "DIC_kwDOUc9pns4DFwQt"
 
 [sites.cpp-social]
 origins = ["https://cpp.social"]
-mapping = "id"
+mapping = "key"
 repository = "cppsocial/site"
 repository_id = "R_kgDOSOfNQQ"
 installation_id = 162105624

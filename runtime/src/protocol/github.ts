@@ -3,7 +3,7 @@ import viewerVoteQuery from "./queries/viewer_vote.graphql";
 import voteMutation from "./queries/vote.graphql";
 
 export type Vote = "up" | "down";
-export type ViewerVote = Vote | "none";
+export type ViewerVote = Vote | "both" | "none";
 
 export interface VoteResult {
   up: number;
@@ -28,13 +28,15 @@ export async function viewerVote(
   if (!node || typeof node !== "object") throw new TypeError("Invalid GitHub response");
   const groups = (node as { reactionGroups?: unknown }).reactionGroups;
   if (!Array.isArray(groups)) throw new TypeError("Invalid GitHub response");
+  let up = false;
+  let down = false;
   for (const group of groups) {
     if (!group || typeof group !== "object") continue;
     const candidate = group as { content?: unknown; viewerHasReacted?: unknown };
-    if (candidate.viewerHasReacted === true && candidate.content === "THUMBS_UP") return "up";
-    if (candidate.viewerHasReacted === true && candidate.content === "THUMBS_DOWN") return "down";
+    if (candidate.viewerHasReacted === true && candidate.content === "THUMBS_UP") up = true;
+    if (candidate.viewerHasReacted === true && candidate.content === "THUMBS_DOWN") down = true;
   }
-  return "none";
+  return viewerState(up, down);
 }
 
 export async function vote(
@@ -45,21 +47,21 @@ export async function vote(
   fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
   signal?: AbortSignal,
 ): Promise<VoteResult> {
-  const operation = finalOperation(current, requested);
+  const operations = voteOperations(current, requested);
   const body = await githubGraphql(
     fetch,
     token,
     voteMutation,
     {
       id: discussionId,
-      removeUp: current === "up",
-      removeDown: current === "down",
-      addUp: requested === "up" && current !== "up",
-      addDown: requested === "down" && current !== "down",
+      removeUp: operations.removeUp,
+      removeDown: operations.removeDown,
+      addUp: operations.addUp,
+      addDown: operations.addDown,
     },
     signal,
   );
-  return parseResult(body, operation);
+  return parseResult(body, operations.finalOperation);
 }
 
 interface GraphQLResponse {
@@ -87,9 +89,31 @@ async function githubGraphql(
   return body;
 }
 
-function finalOperation(current: ViewerVote, requested: Vote): string {
-  if (current !== requested) return requested === "up" ? "addUp" : "addDown";
-  return requested === "up" ? "removeUp" : "removeDown";
+function voteOperations(current: ViewerVote, requested: Vote): {
+  removeUp: boolean;
+  removeDown: boolean;
+  addUp: boolean;
+  addDown: boolean;
+  finalOperation: string;
+} {
+  if (current === "both") {
+    return requested === "up"
+      ? { removeUp: false, removeDown: true, addUp: false, addDown: false, finalOperation: "removeDown" }
+      : { removeUp: true, removeDown: false, addUp: false, addDown: false, finalOperation: "removeUp" };
+  }
+  const removeUp = current === "up";
+  const removeDown = current === "down";
+  const addUp = requested === "up" && current !== "up";
+  const addDown = requested === "down" && current !== "down";
+  return {
+    removeUp,
+    removeDown,
+    addUp,
+    addDown,
+    finalOperation: current === requested
+      ? requested === "up" ? "removeUp" : "removeDown"
+      : requested === "up" ? "addUp" : "addDown",
+  };
 }
 
 function parseResult(value: unknown, finalOperation: string): VoteResult {
@@ -105,7 +129,8 @@ function parseResult(value: unknown, finalOperation: string): VoteResult {
   if (!Array.isArray(groups)) throw new TypeError("Invalid GitHub response");
   let up = 0;
   let down = 0;
-  let viewer: ViewerVote = "none";
+  let viewerUp = false;
+  let viewerDown = false;
   for (const group of groups) {
     if (!group || typeof group !== "object") throw new TypeError("Invalid GitHub response");
     const candidate = group as {
@@ -117,11 +142,18 @@ function parseResult(value: unknown, finalOperation: string): VoteResult {
     if (!Number.isSafeInteger(count)) throw new TypeError("Invalid GitHub response");
     if (candidate.content === "THUMBS_UP") {
       up = count as number;
-      if (candidate.viewerHasReacted === true) viewer = "up";
+      if (candidate.viewerHasReacted === true) viewerUp = true;
     } else if (candidate.content === "THUMBS_DOWN") {
       down = count as number;
-      if (candidate.viewerHasReacted === true) viewer = "down";
+      if (candidate.viewerHasReacted === true) viewerDown = true;
     }
   }
-  return { up, down, viewer };
+  return { up, down, viewer: viewerState(viewerUp, viewerDown) };
+}
+
+function viewerState(up: boolean, down: boolean): ViewerVote {
+  if (up && down) return "both";
+  if (up) return "up";
+  if (down) return "down";
+  return "none";
 }

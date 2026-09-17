@@ -104,3 +104,38 @@ void test("votes are submitted through the service with the user token", async (
   assert.deepEqual(await request.json(), { key: "feedback/example", vote: "up" });
   assert.deepEqual(result, { up: 12, down: 3, viewer: "up" });
 });
+
+void test("last counter values are available before the network responds", async () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  };
+  const response = {
+    v: 1,
+    site: "cpp-social",
+    items: { article: { id: "D_article", up: 14, down: 2, age: 1, stale: false } },
+  };
+  const first = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social",
+    site: "cpp-social",
+    counterStorage: storage,
+    fetch: () => Promise.resolve(Response.json(response)),
+  });
+  await first.reactions(["article"]);
+  const reloaded = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social",
+    site: "cpp-social",
+    counterStorage: storage,
+    fetch: () => Promise.reject(new Error("network should not be used")),
+  });
+
+  const cached = reloaded.cachedReactions(["article"]).get("article");
+
+  assert.ok(cached);
+  assert.equal(cached.id, "D_article");
+  assert.equal(cached.up, 14);
+  assert.equal(cached.down, 2);
+  assert.equal(cached.stale, true);
+});

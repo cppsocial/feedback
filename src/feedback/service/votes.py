@@ -48,6 +48,6 @@ class VoteService:
 
 
 def _vote_delta(before: str, after: str) -> tuple[int, int]:
-    up = int(after == "up") - int(before == "up")
-    down = int(after == "down") - int(before == "down")
+    up = int(after in {"up", "both"}) - int(before in {"up", "both"})
+    down = int(after in {"down", "both"}) - int(before in {"down", "both"})
     return up, down

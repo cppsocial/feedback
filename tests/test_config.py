@@ -23,7 +23,7 @@ github_client_id = "Iv1.client"
 def site(site_id: str = "cpp-social", origin: str = "https://cpp.social") -> str:
     return f"""[sites.{site_id}]
 origins = ["{origin}"]
-mapping = "id"
+mapping = "key"
 repository = "cppsocial/site"
 repository_id = "R_repo"
 installation_id = 123
@@ -37,7 +37,11 @@ def test_loads_valid_config_and_data_override(tmp_path: Path) -> None:
     config = load_config(write_config(tmp_path / "sites.toml", site()), data_directory=override)
 
     assert config.service.data_directory == override
-    assert config.sites["cpp-social"].max_batch_size == 100
+    configured_site = config.sites["cpp-social"]
+    assert configured_site.cache_fresh_seconds == 5
+    assert configured_site.refresh_cooldown_seconds == 5
+    assert configured_site.refresh_sweep_seconds == 86_400
+    assert configured_site.max_batch_size == 100
 
 
 @pytest.mark.parametrize(
@@ -46,7 +50,7 @@ def test_loads_valid_config_and_data_override(tmp_path: Path) -> None:
         (site("UPPER"), "invalid site id"),
         (site(origin="http://cpp.social"), "must use HTTPS"),
         (site() + site("other"), "more than one site"),
-        (site().replace('mapping = "id"', 'mapping = "anything"'), "unsupported"),
+        (site().replace('mapping = "key"', 'mapping = "anything"'), "unsupported"),
         (site().replace("category_id", "unexpected"), "unknown sites.cpp-social key"),
     ],
 )

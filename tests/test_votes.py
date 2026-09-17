@@ -33,7 +33,7 @@ class FakeVotes:
         return VoteResult(self.count, 0, "up")
 
 
-def database(path: Path) -> SiteDatabase:
+def database(path: Path, *, up: int = 0, down: int = 0) -> SiteDatabase:
     result = SiteDatabase(path)
     result.migrate()
     result.put_discussion(
@@ -43,6 +43,8 @@ def database(path: Path) -> SiteDatabase:
         number=1,
         title="feedback/example",
         url="https://github.test/1",
+        up=up,
+        down=down,
         fetched_at=1,
     )
     return result
@@ -92,3 +94,32 @@ def test_vote_endpoint_updates_count_without_a_refresh(config: Config) -> None:
     assert response.json() == {"v": 1, "up": 1, "down": 0, "viewer": "up"}
     assert response.headers["cache-control"] == "no-store"
     assert store.reactions(["feedback/example"])["feedback/example"].up == 1
+
+
+class FakeBothVotes(FakeVotes):
+    async def viewer_vote(self, token: str, discussion_id: str) -> str:
+        return "both"
+
+    async def vote(
+        self, token: str, discussion_id: str, current: str, requested: str
+    ) -> VoteResult:
+        assert current == "both"
+        assert requested == "up"
+        return VoteResult(8, 2, "up")
+
+
+@pytest.mark.asyncio
+async def test_normalizing_both_reactions_decrements_only_removed_vote(tmp_path: Path) -> None:
+    store = database(tmp_path / "site.sqlite3", up=8, down=3)
+    service = VoteService(FakeBothVotes())
+
+    result = await service.vote(
+        store,
+        resource_id="feedback/example",
+        requested="up",
+        token="ghu_user",
+    )
+
+    assert result == VoteResult(8, 2, "up")
+    cached = store.reactions(["feedback/example"])["feedback/example"]
+    assert (cached.up, cached.down) == (8, 2)

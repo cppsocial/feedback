@@ -11,13 +11,9 @@
   <body>
     <main>
       <h1>Feedback integration example</h1>
-      <p>This small page exercises cached counts, GitHub authentication, direct voting, and local stars.</p>
+      <p>This page exercises batched cached counts, targeted refreshes, GitHub authentication, voting, and local stars.</p>
       <p>API: <code id="api-origin"></code></p>
-      <div class="controls" aria-label="Feedback controls">
-        <button id="up" type="button">▲ 0</button>
-        <button id="down" type="button">▼ 0</button>
-        <button id="star" type="button" aria-pressed="false">★ Star</button>
-      </div>
+      <div id="cards" class="cards"></div>
       <p id="status" role="status">Loading…</p>
     </main>
     <script src="{{EXAMPLE_SCRIPT}}"></script>

@@ -80,13 +80,13 @@ async def json_object(request: Request, *, maximum_body_size: int = 16_384) -> d
 
 async def ensure_discussion_request(request: Request) -> EnsureDiscussionRequest:
     body = await json_object(request)
-    allowed = {"key", "title", "url", "pathname", "specific", "number", "grant"}
+    allowed = {"key", "title", "url", "pathname", "custom", "number", "grant"}
     if set(body) - allowed or not {"key", "url", "grant"} <= set(body):
         raise ApiError("invalid_request", "Discussion fields are invalid.", 400)
     for field in ("key", "url", "grant"):
         if not _is_string(body[field], 4096):
             raise ApiError("invalid_request", "Discussion fields are invalid.", 400)
-    for field in ("title", "pathname", "specific"):
+    for field in ("title", "pathname", "custom"):
         value = body.get(field)
         if value is not None and (not isinstance(value, str) or not value or len(value) > 512):
             raise ApiError("invalid_request", "Discussion fields are invalid.", 400)
@@ -101,7 +101,7 @@ async def ensure_discussion_request(request: Request) -> EnsureDiscussionRequest
             title=cast(str | None, body.get("title")),
             url=cast(str, body["url"]),
             pathname=cast(str | None, body.get("pathname")),
-            specific=cast(str | None, body.get("specific")),
+            custom=cast(str | None, body.get("custom")),
             number=number,
         ),
         cast(str, body["grant"]),

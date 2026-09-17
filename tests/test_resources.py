@@ -22,7 +22,7 @@ def test_invalid_resource_ids(value: str) -> None:
 @pytest.mark.parametrize(
     ("mapping", "resource", "expected"),
     [
-        ("id", Resource("book"), "book"),
+        ("key", Resource("book"), "book"),
         ("title", Resource("book", title=" A Book "), "A Book"),
         (
             "url",
@@ -30,7 +30,7 @@ def test_invalid_resource_ids(value: str) -> None:
             "https://cpp.social/books/a",
         ),
         ("pathname", Resource("book", url="https://cpp.social/books/a"), "/books/a"),
-        ("specific", Resource("book", specific="feedback:book"), "feedback:book"),
+        ("custom", Resource("book", custom="feedback:book"), "feedback:book"),
         ("number", Resource("book", number=42), "42"),
     ],
 )

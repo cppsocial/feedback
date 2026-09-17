@@ -6,6 +6,14 @@ services:
       context: .
       target: production
     image: feedback-service:local
+    command:
+      - --config=/run/config/sites.toml
+      - --github-app-private-key-file=/run/secrets/github-app-private-key
+      - --github-client-secret-file=/run/secrets/github-client-secret
+      - --oauth-state-hmac-key-file=/run/secrets/oauth-state-hmac-key
+      - --forwarded-allow-ips=172.17.0.1
+      - --limit-concurrency=64
+      - --keep-alive-seconds=5
     restart: unless-stopped
     init: true
     read_only: true
@@ -18,19 +26,10 @@ services:
     mem_limit: 256m
     mem_reservation: 128m
     cpus: 1.0
-    environment:
-      FEEDBACK_CONFIG: /run/config/sites.toml
-      FEEDBACK_DATA_DIRECTORY: /data/sites
-      FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key
-      FEEDBACK_GITHUB_CLIENT_SECRET_FILE: /run/secrets/github-client-secret
-      FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE: /run/secrets/oauth-state-hmac-key
-      FEEDBACK_FORWARDED_ALLOW_IPS: ${FEEDBACK_FORWARDED_ALLOW_IPS:-127.0.0.1}
-      FEEDBACK_LIMIT_CONCURRENCY: ${FEEDBACK_LIMIT_CONCURRENCY:-64}
-      FEEDBACK_KEEP_ALIVE_SECONDS: ${FEEDBACK_KEEP_ALIVE_SECONDS:-5}
     ports:
-      - "127.0.0.1:${FEEDBACK_HOST_PORT:-18080}:8080"
+      - "127.0.0.1:18080:8080"
     volumes:
-      - ${FEEDBACK_CONFIG_FILE:-./config/sites.toml}:/run/config/sites.toml:ro
+      - ./config/sites.toml:/run/config/sites.toml:ro
       - feedback-data:/data
     secrets:
       - github-app-private-key
@@ -61,11 +60,11 @@ services:
 
 secrets:
   github-app-private-key:
-    file: ${FEEDBACK_GITHUB_APP_PRIVATE_KEY_FILE:-./config/secrets/github-app-private-key.pem}
+    file: ./config/secrets/github-app-private-key.pem
   github-client-secret:
-    file: ${FEEDBACK_GITHUB_CLIENT_SECRET_FILE:-./config/secrets/github-client-secret}
+    file: ./config/secrets/github-client-secret
   oauth-state-hmac-key:
-    file: ${FEEDBACK_OAUTH_STATE_HMAC_KEY_FILE:-./config/secrets/oauth-state-hmac-key}
+    file: ./config/secrets/oauth-state-hmac-key
 
 volumes:
   feedback-data:

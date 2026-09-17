@@ -15,7 +15,7 @@ class Resource:
     title: str | None = None
     url: str | None = None
     pathname: str | None = None
-    specific: str | None = None
+    custom: str | None = None
     number: int | None = None
 
 
@@ -32,7 +32,7 @@ def validate_resource_id(value: str) -> str:
 
 def lookup_term(mapping: str, resource: Resource) -> str:
     validate_resource_id(resource.key)
-    if mapping == "id":
+    if mapping == "key":
         return resource.key
     if mapping == "title":
         return _required(resource.title, "title")
@@ -40,8 +40,8 @@ def lookup_term(mapping: str, resource: Resource) -> str:
         return _url(resource.url, include_origin=True)
     if mapping == "pathname":
         return _url(resource.pathname or resource.url, include_origin=False)
-    if mapping == "specific":
-        return _required(resource.specific, "specific")
+    if mapping == "custom":
+        return _required(resource.custom, "custom")
     if mapping == "number":
         if (
             not isinstance(resource.number, int)

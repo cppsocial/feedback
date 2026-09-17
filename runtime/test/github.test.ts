@@ -46,3 +46,50 @@ void test("viewer state is queried before deciding a mutation", async () => {
 
   assert.equal(await viewerVote(token, "D_1", fetch), "up");
 });
+
+void test("viewer state preserves simultaneous up and down reactions", async () => {
+  const fetch = (): Promise<Response> => Promise.resolve(Response.json({
+    data: {
+      node: {
+        reactionGroups: [
+          { content: "THUMBS_UP", viewerHasReacted: true },
+          { content: "THUMBS_DOWN", viewerHasReacted: true },
+        ],
+      },
+    },
+  }));
+
+  assert.equal(await viewerVote(token, "D_1", fetch), "both");
+});
+
+void test("voting up from both removes only the invalid down reaction", async () => {
+  let variables: Record<string, unknown> = {};
+  const fetch = (_input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+    if (typeof init?.body !== "string") throw new TypeError("Expected a string body");
+    const body = JSON.parse(init.body) as { variables: Record<string, unknown> };
+    variables = body.variables;
+    return Promise.resolve(Response.json({
+      data: {
+        removeDown: {
+          subject: {
+            reactionGroups: [
+              { content: "THUMBS_UP", users: { totalCount: 8 }, viewerHasReacted: true },
+              { content: "THUMBS_DOWN", users: { totalCount: 2 }, viewerHasReacted: false },
+            ],
+          },
+        },
+      },
+    }));
+  };
+
+  const result = await vote(token, "D_1", "both", "up", fetch);
+
+  assert.deepEqual(variables, {
+    id: "D_1",
+    removeUp: false,
+    removeDown: true,
+    addUp: false,
+    addDown: false,
+  });
+  assert.deepEqual(result, { up: 8, down: 2, viewer: "up" });
+});

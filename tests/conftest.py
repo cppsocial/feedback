@@ -19,7 +19,7 @@ def config(tmp_path: Path) -> Config:
             "cpp-social": SiteConfig(
                 id="cpp-social",
                 origins=("https://cpp.social",),
-                mapping="id",
+                mapping="key",
                 repository="cppsocial/site",
                 repository_id="R_repo",
                 installation_id=123,

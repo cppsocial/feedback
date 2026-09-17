@@ -6,6 +6,7 @@ interface StoredToken {
   value: string;
   expiresAt: number;
   creationGrant: string;
+  viewerId: string;
 }
 
 export class SessionTokenStore {
@@ -29,6 +30,8 @@ export class SessionTokenStore {
         !parsed.value.startsWith("ghu_") ||
         !Number.isSafeInteger(parsed.expiresAt) ||
         typeof parsed.creationGrant !== "string" ||
+        typeof parsed.viewerId !== "string" ||
+        parsed.viewerId.length === 0 ||
         (parsed.expiresAt ?? 0) * 1000 <= this.#clock()
       ) {
         this.clear();
@@ -38,6 +41,7 @@ export class SessionTokenStore {
         value: parsed.value,
         expiresAt: parsed.expiresAt,
         creationGrant: parsed.creationGrant,
+        viewerId: parsed.viewerId,
       } as AccessToken;
     } catch {
       this.clear();

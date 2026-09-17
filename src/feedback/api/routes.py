@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from contextlib import suppress
 from typing import cast
 
@@ -232,6 +233,95 @@ async def submit_vote(request: Request) -> Response:
     return cors(
         JSONResponse(
             {"v": 1, "up": result.up, "down": result.down, "viewer": result.viewer},
+            headers={"Cache-Control": "no-store"},
+        ),
+        origin,
+    )
+
+
+async def viewer_reactions(request: Request) -> Response:
+    container, site, origin = site_context(request, require_origin=True)
+    assert origin is not None
+    if container.votes is None:
+        raise ApiError("service_unavailable", "Voting is unavailable.", 503)
+    if request.method == "OPTIONS":
+        return preflight(origin, method="GET", headers="Authorization")
+    keys = resource_keys(request.query_params, site.max_batch_size)
+    started = time.monotonic()
+    try:
+        known = await container.votes.viewer_votes(
+            container.databases[site.id],
+            resource_ids=keys,
+            token=bearer_token(request),
+        )
+    except GitHubError as exc:
+        github_logger.warning(
+            "GitHub viewer reaction lookup failed: code=%s status=%s "
+            "github_request_id=%s site=%s nodes=%s",
+            exc.code,
+            exc.status,
+            exc.request_id,
+            site.id,
+            len(keys),
+        )
+        status = 401 if exc.status == 401 else 502
+        raise ApiError(
+            "github_viewer_lookup_failed", "GitHub rejected the lookup.", status
+        ) from exc
+    items = {
+        key: {
+            "vote": known.get(key, ("none", False))[0],
+            "starred": known.get(key, ("none", False))[1],
+        }
+        for key in keys
+    }
+    github_logger.info(
+        "GitHub viewer reactions queried: site=%s nodes=%s elapsed_ms=%s",
+        site.id,
+        len(known),
+        round((time.monotonic() - started) * 1000),
+    )
+    return cors(
+        JSONResponse(
+            {"v": 1, "site": site.id, "items": items},
+            headers={"Cache-Control": "no-store"},
+        ),
+        origin,
+    )
+
+
+async def toggle_star(request: Request) -> Response:
+    container, site, origin = site_context(request, require_origin=True)
+    assert origin is not None
+    if container.votes is None:
+        raise ApiError("service_unavailable", "Stars are unavailable.", 503)
+    if request.method == "OPTIONS":
+        return preflight(origin, method="POST", headers="Authorization, Content-Type")
+    body = await json_strings(request, frozenset({"key"}))
+    try:
+        resource_id = validate_resource_id(body["key"])
+        starred = await container.votes.star(
+            container.databases[site.id],
+            resource_id=resource_id,
+            token=bearer_token(request),
+        )
+    except ResourceError:
+        raise ApiError("invalid_star", "Star parameters are invalid.", 400) from None
+    except VoteError as exc:
+        raise ApiError("discussion_not_found", str(exc), 404) from exc
+    except GitHubError as exc:
+        github_logger.warning(
+            "GitHub star failed: code=%s status=%s github_request_id=%s site=%s",
+            exc.code,
+            exc.status,
+            exc.request_id,
+            site.id,
+        )
+        status = 401 if exc.status == 401 else 502
+        raise ApiError("github_star_failed", "GitHub rejected the star.", status) from exc
+    return cors(
+        JSONResponse(
+            {"v": 1, "starred": starred},
             headers={"Cache-Control": "no-store"},
         ),
         origin,

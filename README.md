@@ -100,11 +100,18 @@ browsers revalidate with this service; that does not imply a GitHub request whil
 the relevant snapshot remains fresh.
 
 The browser runtime keeps the last counter snapshot and the last confirmed viewer
-vote state in local storage for up to seven days. Consumers can render them
+vote/star state in local storage for up to seven days. Consumers can render them
 synchronously while the API request is in flight, avoiding a flash of zero counters
 or unselected vote buttons. Snapshots contain only the site/resource key, discussion
-node ID, counts, viewer state, and save time; authentication tokens are not part of
+node ID, counts, viewer state, star state, and save time; authentication tokens are not part of
 this cache. Storage is optional and failures fall back to the network normally.
+
+Once authenticated, the runtime also resolves the current user's vote and star
+state for all visible discussions in one batched GitHub query. That viewer-specific
+snapshot is reused for five minutes, including across reloads, and then refreshed
+on demand. This makes reactions created on GitHub or another device visible without
+turning every counter request into an authenticated GitHub request. Stars map to
+GitHub's `EYES` reaction because Discussions does not provide a star reaction.
 
 Operational logs are emitted at GitHub boundaries rather than for every HTTP
 request. Reaction-refresh lines include the site, trigger (`requested` or

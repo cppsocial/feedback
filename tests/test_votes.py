@@ -1,13 +1,15 @@
 import asyncio
+import json
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
 from feedback.app import create_app
 from feedback.config import Config
 from feedback.database.sqlite import SiteDatabase
-from feedback.protocol.github.votes import VoteResult
+from feedback.protocol.github.votes import GitHubVotes, VoteResult
 from feedback.service.votes import VoteService
 
 
@@ -21,6 +23,17 @@ class FakeVotes:
         assert token.startswith("ghu_")
         assert discussion_id == "D_example"
         return "none"
+
+    async def viewer_votes(
+        self, token: str, discussion_ids: list[str]
+    ) -> dict[str, tuple[str, bool]]:
+        assert token.startswith("ghu_")
+        return {discussion_id: ("up", True) for discussion_id in discussion_ids}
+
+    async def star(self, token: str, discussion_id: str, current: bool) -> bool:
+        assert token.startswith("ghu_")
+        assert discussion_id == "D_example"
+        return not current
 
     async def vote(
         self, token: str, discussion_id: str, current: str, requested: str
@@ -96,6 +109,61 @@ def test_vote_endpoint_updates_count_without_a_refresh(config: Config) -> None:
     assert store.reactions(["feedback/example"])["feedback/example"].up == 1
 
 
+def test_viewer_reactions_are_looked_up_in_one_authenticated_batch(config: Config) -> None:
+    github = FakeVotes()
+    app = create_app(config, clock=lambda: 100, votes=VoteService(github))
+    with TestClient(app) as client:
+        store = app.state.services.databases["cpp-social"]
+        store.put_discussion(
+            resource_id="feedback/example",
+            lookup_term="feedback/example",
+            node_id="D_example",
+            number=1,
+            title="feedback/example",
+            url="https://github.test/1",
+        )
+        response = client.get(
+            "/v1/sites/cpp-social/viewer-reactions?keys=feedback/example,feedback/missing",
+            headers={
+                "Origin": "https://cpp.social",
+                "Authorization": "Bearer ghu_user",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "v": 1,
+        "site": "cpp-social",
+        "items": {
+            "feedback/example": {"vote": "up", "starred": True},
+            "feedback/missing": {"vote": "none", "starred": False},
+        },
+    }
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_star_endpoint_toggles_github_eyes_reaction(config: Config) -> None:
+    app = create_app(config, votes=VoteService(FakeVotes()))
+    with TestClient(app) as client:
+        store = app.state.services.databases["cpp-social"]
+        store.put_discussion(
+            resource_id="feedback/example",
+            lookup_term="feedback/example",
+            node_id="D_example",
+            number=1,
+            title="feedback/example",
+            url="https://github.test/1",
+        )
+        response = client.post(
+            "/v1/sites/cpp-social/stars",
+            headers={"Origin": "https://cpp.social", "Authorization": "Bearer ghu_user"},
+            json={"key": "feedback/example"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"v": 1, "starred": False}
+
+
 class FakeBothVotes(FakeVotes):
     async def viewer_vote(self, token: str, discussion_id: str) -> str:
         return "both"
@@ -123,3 +191,65 @@ async def test_normalizing_both_reactions_decrements_only_removed_vote(tmp_path:
     assert result == VoteResult(8, 2, "up")
     cached = store.reactions(["feedback/example"])["feedback/example"]
     assert (cached.up, cached.down) == (8, 2)
+
+
+@pytest.mark.asyncio
+async def test_github_viewer_reactions_batch_includes_eyes() -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "nodes": [
+                        {
+                            "id": "D_example",
+                            "reactionGroups": [
+                                {"content": "THUMBS_UP", "viewerHasReacted": True},
+                                {"content": "THUMBS_DOWN", "viewerHasReacted": True},
+                                {"content": "EYES", "viewerHasReacted": True},
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        result = await GitHubVotes(http).viewer_votes("ghu_user", ["D_example"])
+
+    assert result == {"D_example": ("both", True)}
+    assert requests == 1
+
+
+@pytest.mark.asyncio
+async def test_github_star_adds_eyes_reaction() -> None:
+    variables: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal variables
+        body = json.loads(request.read())
+        variables = body["variables"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "add": {
+                        "subject": {
+                            "reactionGroups": [
+                                {"content": "EYES", "viewerHasReacted": True}
+                            ]
+                        }
+                    }
+                }
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        starred = await GitHubVotes(http).star("ghu_user", "D_example", False)
+
+    assert starred is True
+    assert variables == {"id": "D_example", "remove": False, "add": True}

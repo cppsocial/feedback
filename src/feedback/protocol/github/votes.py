@@ -9,7 +9,9 @@ from feedback.protocol.github.client import GitHubError
 from feedback.protocol.github.queries import load
 
 _VIEWER_VOTE = load("viewer_vote")
+_VIEWER_VOTES = load("viewer_votes")
 _VOTE = load("vote")
+_STAR = load("star")
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,56 @@ class GitHubVotes:
                 elif group.get("content") == "THUMBS_DOWN":
                     down = True
         return _viewer_state(up, down)
+
+    async def viewer_votes(
+        self, token: str, discussion_ids: list[str]
+    ) -> dict[str, tuple[str, bool]]:
+        if not discussion_ids:
+            return {}
+        data = await self._graphql(token, _VIEWER_VOTES, {"ids": discussion_ids})
+        nodes = data.get("nodes")
+        if not isinstance(nodes, list):
+            raise GitHubError("github_malformed_response")
+        result: dict[str, tuple[str, bool]] = {}
+        for node in nodes:
+            if node is None:
+                continue
+            if not isinstance(node, dict) or not isinstance(node.get("id"), str):
+                raise GitHubError("github_malformed_response")
+            groups = node.get("reactionGroups")
+            if not isinstance(groups, list):
+                raise GitHubError("github_malformed_response")
+            up = False
+            down = False
+            starred = False
+            for group in groups:
+                if not isinstance(group, dict):
+                    raise GitHubError("github_malformed_response")
+                if group.get("viewerHasReacted") is True:
+                    up |= group.get("content") == "THUMBS_UP"
+                    down |= group.get("content") == "THUMBS_DOWN"
+                    starred |= group.get("content") == "EYES"
+            result[node["id"]] = (_viewer_state(up, down), starred)
+        return result
+
+    async def star(self, token: str, discussion_id: str, current: bool) -> bool:
+        operation = "remove" if current else "add"
+        data = await self._graphql(
+            token,
+            _STAR,
+            {"id": discussion_id, "remove": current, "add": not current},
+        )
+        result = data.get(operation)
+        subject = result.get("subject") if isinstance(result, dict) else None
+        groups = subject.get("reactionGroups") if isinstance(subject, dict) else None
+        if not isinstance(groups, list):
+            raise GitHubError("github_malformed_response")
+        for group in groups:
+            if not isinstance(group, dict):
+                raise GitHubError("github_malformed_response")
+            if group.get("content") == "EYES":
+                return group.get("viewerHasReacted") is True
+        return False
 
     async def vote(
         self, token: str, discussion_id: str, current: str, requested: str

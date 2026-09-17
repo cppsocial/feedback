@@ -96,9 +96,10 @@ export class Authentication {
         signal,
       );
       const token = await this.#service.exchange(code, authorization.state, verifier, signal);
-      await validateViewer(this.#fetch, token.value, signal);
-      this.#tokens.set(token);
-      return token;
+      const viewerId = await validateViewer(this.#fetch, token.value, signal);
+      const authenticated = { ...token, viewerId };
+      this.#tokens.set(authenticated);
+      return authenticated;
     } catch (error) {
       this.#tokens.clear();
       throw error;
@@ -171,7 +172,7 @@ async function validateViewer(
   fetch: typeof globalThis.fetch,
   token: string,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<string> {
   const init: RequestInit = {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -181,17 +182,21 @@ async function validateViewer(
   const response = await fetch("https://api.github.com/graphql", init);
   if (!response.ok) throw new AuthenticationError("token_invalid");
   const body: unknown = await response.json();
-  if (!hasViewer(body)) throw new AuthenticationError("token_invalid");
+  const viewerId = viewer(body);
+  if (viewerId === null) throw new AuthenticationError("token_invalid");
+  return viewerId;
 }
 
-function hasViewer(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
+function viewer(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
   const data = (value as { data?: unknown }).data;
-  if (!data || typeof data !== "object") return false;
+  if (!data || typeof data !== "object") return null;
   const viewer = (data as { viewer?: unknown }).viewer;
-  if (!viewer || typeof viewer !== "object") return false;
+  if (!viewer || typeof viewer !== "object") return null;
   const candidate = viewer as { id?: unknown; login?: unknown };
-  return typeof candidate.id === "string" && typeof candidate.login === "string";
+  return typeof candidate.id === "string" && typeof candidate.login === "string"
+    ? candidate.id
+    : null;
 }
 
 function randomBase64Url(crypto: Crypto, size: number): string {

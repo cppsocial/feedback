@@ -10,8 +10,16 @@ interface CounterState {
   stale: boolean;
 }
 
+type StoredReactionState = CounterState & {
+  viewer: ViewerVote;
+  viewerKnown?: boolean;
+  starred?: boolean;
+};
+
 export interface ReactionState extends CounterState {
   viewer: ViewerVote;
+  viewerKnown: boolean;
+  starred: boolean;
 }
 
 interface ReactionEnvelope {
@@ -42,6 +50,7 @@ export interface AccessToken {
   value: string;
   expiresAt: number;
   creationGrant: string;
+  viewerId?: string;
 }
 
 export interface EnsuredDiscussion {
@@ -91,11 +100,55 @@ export class FeedbackClient {
     for (const key of normalized) {
       const state = payload.items[key] ?? emptyState();
       if (!isCounterState(state)) throw new TypeError("Invalid feedback service response");
-      const combined = { ...state, viewer: this.#cachedReaction(key)?.viewer ?? "none" };
+      const cached = this.#cachedReaction(key);
+      const combined = {
+        ...state,
+        viewer: cached?.viewer ?? "none",
+        viewerKnown: cached?.viewerKnown ?? false,
+        starred: cached?.starred ?? false,
+      };
       result.set(key, combined);
       this.#storeReaction(key, combined);
     }
     return result;
+  }
+
+  async syncViewerReactions(
+    keys: Iterable<string>,
+    token: AccessToken,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyMap<string, ReactionState>> {
+    const normalized = [...new Set(Array.from(keys, validateResourceId))].sort();
+    if (normalized.length === 0) throw new TypeError("At least one resource key is required");
+    const pending = normalized.filter((key) => this.#viewerNeedsSync(key, token.viewerId));
+    if (pending.length > 0) {
+      const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/viewer-reactions`, this.#apiOrigin);
+      url.searchParams.set("keys", pending.join(","));
+      const headers = { Accept: "application/json", Authorization: `Bearer ${token.value}` };
+      const init: RequestInit = { headers };
+      if (signal) init.signal = signal;
+      const response = await this.#fetch(url, init);
+      if (!response.ok) throw new FeedbackError(response.status, await errorCode(response));
+      const payload: unknown = await response.json();
+      if (!isViewerEnvelope(payload, this.#site, pending)) {
+        throw new TypeError("Invalid feedback service response");
+      }
+      for (const key of pending) {
+        const cached = this.#cachedReaction(key) ?? emptyState();
+        this.#storeReaction(
+          key,
+          {
+            ...cached,
+            viewer: payload.items[key]?.vote ?? "none",
+            starred: payload.items[key]?.starred ?? false,
+            viewerKnown: true,
+          },
+          true,
+          token.viewerId,
+        );
+      }
+    }
+    return this.cachedReactions(normalized);
   }
 
   async authorize(challenge: string, nonce: string, signal?: AbortSignal): Promise<Authorization> {
@@ -174,8 +227,24 @@ export class FeedbackClient {
       age: 0,
       stale: true,
       viewer: result.viewer,
-    });
+      viewerKnown: true,
+      starred: cached?.starred ?? false,
+    }, true, token.viewerId);
     return result;
+  }
+
+  async toggleStar(key: string, token: AccessToken, signal?: AbortSignal): Promise<boolean> {
+    validateResourceId(key);
+    const payload = await this.#post("stars", { key }, signal, token.value);
+    if (typeof payload.starred !== "boolean") throw new TypeError("Invalid star response");
+    const cached = this.#cachedReaction(key) ?? emptyState();
+    this.#storeReaction(
+      key,
+      { ...cached, starred: payload.starred, viewerKnown: true },
+      true,
+      token.viewerId,
+    );
+    return payload.starred;
   }
 
   async #post(
@@ -214,26 +283,71 @@ export class FeedbackClient {
       if (
         !Number.isSafeInteger(value.savedAt) ||
         Date.now() - (value.savedAt as number) > 7 * 24 * 60 * 60 * 1000 ||
-        !isReactionState(value.state)
+        !isStoredReactionState(value.state)
       ) {
         this.#counterStorage.removeItem(counterKey(this.#site, key));
         return null;
       }
       const elapsed = Math.max(0, Math.floor((Date.now() - (value.savedAt as number)) / 1000));
-      return { ...value.state, age: value.state.age + elapsed, stale: true };
+      return {
+        ...value.state,
+        viewerKnown: value.state.viewerKnown ?? false,
+        starred: value.state.starred ?? false,
+        age: value.state.age + elapsed,
+        stale: true,
+      };
     } catch {
       return null;
     }
   }
 
-  #storeReaction(key: string, state: ReactionState): void {
+  #storeReaction(
+    key: string,
+    state: ReactionState,
+    viewerConfirmed = false,
+    viewerId?: string,
+  ): void {
     try {
+      let viewerCheckedAt: number | null = null;
+      let existingViewerId: string | undefined;
+      const existing = this.#counterStorage?.getItem(counterKey(this.#site, key));
+      if (existing !== null && existing !== undefined) {
+        const parsed = JSON.parse(existing) as { viewerCheckedAt?: unknown; viewerId?: unknown };
+        if (Number.isSafeInteger(parsed.viewerCheckedAt)) viewerCheckedAt = parsed.viewerCheckedAt as number;
+        if (typeof parsed.viewerId === "string") existingViewerId = parsed.viewerId;
+      }
       this.#counterStorage?.setItem(
         counterKey(this.#site, key),
-        JSON.stringify({ savedAt: Date.now(), state }),
+        JSON.stringify({
+          savedAt: Date.now(),
+          viewerCheckedAt: viewerConfirmed ? Date.now() : viewerCheckedAt,
+          viewerId: viewerConfirmed ? viewerId : existingViewerId,
+          state,
+        }),
       );
     } catch {
       // Storage may be disabled or full; counters still work from the network.
+    }
+  }
+
+
+  #viewerNeedsSync(key: string, viewerId?: string): boolean {
+    if (this.#counterStorage === undefined) return true;
+    try {
+      const raw = this.#counterStorage.getItem(counterKey(this.#site, key));
+      if (raw === null) return true;
+      const value = JSON.parse(raw) as {
+        viewerCheckedAt?: unknown;
+        viewerId?: unknown;
+        state?: unknown;
+      };
+      return !isStoredReactionState(value.state) ||
+        !value.state.viewerKnown ||
+        (viewerId !== undefined && value.viewerId !== viewerId) ||
+        !Number.isSafeInteger(value.viewerCheckedAt) ||
+        Date.now() - (value.viewerCheckedAt as number) >= 5 * 60 * 1000;
+    } catch {
+      return true;
     }
   }
 }
@@ -245,7 +359,16 @@ export class FeedbackError extends Error {
 }
 
 function emptyState(): ReactionState {
-  return { id: null, up: 0, down: 0, age: 0, stale: false, viewer: "none" };
+  return {
+    id: null,
+    up: 0,
+    down: 0,
+    age: 0,
+    stale: false,
+    viewer: "none",
+    viewerKnown: false,
+    starred: false,
+  };
 }
 
 function isEnvelope(value: unknown, site: string): value is ReactionEnvelope {
@@ -266,12 +389,40 @@ function isCounterState(value: unknown): value is CounterState {
   );
 }
 
-function isReactionState(value: unknown): value is ReactionState {
-  return isCounterState(value) && isViewerVote((value as Partial<ReactionState>).viewer);
+function isStoredReactionState(value: unknown): value is StoredReactionState {
+  return isCounterState(value) &&
+    isViewerVote((value as Partial<ReactionState>).viewer) &&
+    ((value as Partial<ReactionState>).viewerKnown === undefined ||
+      typeof (value as Partial<ReactionState>).viewerKnown === "boolean") &&
+    ((value as Partial<ReactionState>).starred === undefined ||
+      typeof (value as Partial<ReactionState>).starred === "boolean");
 }
 
 function isViewerVote(value: unknown): value is ViewerVote {
   return value === "up" || value === "down" || value === "both" || value === "none";
+}
+
+function isViewerEnvelope(
+  value: unknown,
+  site: string,
+  keys: readonly string[],
+): value is {
+  v: 1;
+  site: string;
+  items: Record<string, { vote: ViewerVote; starred: boolean }>;
+} {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { v?: unknown; site?: unknown; items?: unknown };
+  if (candidate.v !== 1 || candidate.site !== site || !candidate.items || typeof candidate.items !== "object") {
+    return false;
+  }
+  const items = candidate.items as Record<string, unknown>;
+  return Object.keys(items).length === keys.length && keys.every((key) => {
+    const item = items[key];
+    return !!item && typeof item === "object" &&
+      isViewerVote((item as { vote?: unknown }).vote) &&
+      typeof (item as { starred?: unknown }).starred === "boolean";
+  });
 }
 
 function counterKey(site: string, resource: string): string {

@@ -23,6 +23,8 @@ from feedback.api.routes import (
     oauth_exchange,
     reactions,
     submit_vote,
+    toggle_star,
+    viewer_reactions,
 )
 from feedback.config import Config
 from feedback.database.sqlite import SiteDatabase
@@ -144,6 +146,16 @@ def create_app(
             Route(
                 "/v1/sites/{site}/votes",
                 submit_vote,
+                methods=["POST", "OPTIONS"],
+            ),
+            Route(
+                "/v1/sites/{site}/viewer-reactions",
+                viewer_reactions,
+                methods=["GET", "OPTIONS"],
+            ),
+            Route(
+                "/v1/sites/{site}/stars",
+                toggle_star,
                 methods=["POST", "OPTIONS"],
             ),
         ],

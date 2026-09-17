@@ -94,7 +94,12 @@ void test("votes are submitted through the service with the user token", async (
     site: "cpp-social",
     fetch,
   });
-  const token = { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" };
+  const token = {
+    value: "ghu_user",
+    expiresAt: 2_000_000_000,
+    creationGrant: "grant",
+    viewerId: "U_one",
+  };
 
   const result = await client.vote("feedback/example", "up", token);
 
@@ -148,4 +153,83 @@ void test("last counter values are available before the network responds", async
   assert.equal(cached.down, 2);
   assert.equal(cached.stale, true);
   assert.equal(cached.viewer, "up");
+  assert.equal(cached.viewerKnown, true);
+});
+
+void test("viewer reactions sync once per freshness window and survive reloads", async () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  };
+  let viewerRequests = 0;
+  const fetch = (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    if (request.url.includes("/viewer-reactions")) {
+      viewerRequests += 1;
+      assert.equal(request.headers.get("authorization"), "Bearer ghu_user");
+      return Promise.resolve(Response.json({
+        v: 1,
+        site: "cpp-social",
+        items: { article: { vote: "both", starred: true } },
+      }));
+    }
+    return Promise.resolve(Response.json({
+      v: 1,
+      site: "cpp-social",
+      items: { article: { id: "D_article", up: 4, down: 2, age: 0, stale: false } },
+    }));
+  };
+  const token = {
+    value: "ghu_user",
+    expiresAt: 2_000_000_000,
+    creationGrant: "grant",
+    viewerId: "U_one",
+  };
+  const first = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social", site: "cpp-social", fetch, counterStorage: storage,
+  });
+  await first.reactions(["article"]);
+  const synced = await first.syncViewerReactions(["article"], token);
+  const reloaded = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social", site: "cpp-social", fetch, counterStorage: storage,
+  });
+  const reused = await reloaded.syncViewerReactions(["article"], token);
+
+  assert.equal(synced.get("article")?.viewer, "both");
+  assert.equal(synced.get("article")?.starred, true);
+  assert.equal(reused.get("article")?.viewer, "both");
+  assert.equal(viewerRequests, 1);
+
+  await reloaded.syncViewerReactions(["article"], { ...token, viewerId: "U_two" });
+  assert.equal(viewerRequests, 2);
+});
+
+void test("stars are toggled through the service and cached", async () => {
+  let request: Request | undefined;
+  const values = new Map<string, string>();
+  const client = new FeedbackClient({
+    apiOrigin: "https://feedback-api.cpp.social",
+    site: "cpp-social",
+    fetch: (input, init) => {
+      request = new Request(input, init);
+      return Promise.resolve(Response.json({ v: 1, starred: true }));
+    },
+    counterStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => { values.set(key, value); },
+      removeItem: (key) => { values.delete(key); },
+    },
+  });
+  const token = { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" };
+
+  const starred = await client.toggleStar("article", token);
+
+  assert.equal(starred, true);
+  assert.ok(request);
+  assert.equal(request.url, "https://feedback-api.cpp.social/v1/sites/cpp-social/stars");
+  assert.equal(request.headers.get("authorization"), "Bearer ghu_user");
+  assert.deepEqual(await request.json(), { key: "article" });
+  assert.equal(client.cachedReactions(["article"]).get("article")?.starred, true);
 });

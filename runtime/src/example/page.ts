@@ -3,7 +3,6 @@ import { Authentication } from "../auth/controller.js";
 import { PendingVoteStore } from "../auth/pending-vote.js";
 import { trustedOrigin } from "../auth/origin.js";
 import type { Resource } from "../feedback/resources.js";
-import { Stars } from "../feedback/stars.js";
 import type { Vote, ViewerVote } from "../protocol/github.js";
 
 interface Card {
@@ -12,6 +11,7 @@ interface Card {
   up: HTMLButtonElement;
   down: HTMLButtonElement;
   star: HTMLButtonElement;
+  starred: boolean;
 }
 
 const parameters = new URLSearchParams(location.search);
@@ -25,7 +25,6 @@ const resources: Resource[] = [
 ];
 const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
-const stars = new Stars(site);
 const pendingVotes = new PendingVoteStore(site);
 const status = requiredElement("status");
 const cards = new Map(resources.map((resource) => [resource.key, createCard(resource)]));
@@ -33,6 +32,8 @@ requiredElement("api-origin").textContent = apiOrigin;
 
 renderCached();
 void refresh();
+const existingToken = authentication.token();
+if (existingToken !== null) void refreshViewer(existingToken);
 
 function renderCached(): void {
   const cached = client.cachedReactions(resources.map(({ key }) => key));
@@ -41,7 +42,7 @@ function renderCached(): void {
     const card = cards.get(key);
     if (!card) continue;
     card.discussionId = state.id;
-    render(card, state.up, state.down, state.viewer);
+    render(card, state.up, state.down, state.viewer, state.starred);
   }
   status.textContent = "Showing saved counts while updating…";
 }
@@ -54,7 +55,7 @@ async function refresh(): Promise<void> {
       const state = states.get(key);
       if (!state) throw new Error(`Missing reaction state for ${key}`);
       card.discussionId = state.id;
-      render(card, state.up, state.down, state.viewer);
+      render(card, state.up, state.down, state.viewer, state.starred);
       stale ||= state.stale;
     }
     status.textContent = stale ? "Some cached counts could not be refreshed." : "Ready.";
@@ -69,7 +70,10 @@ async function castVote(card: Card, requested: Vote): Promise<void> {
   status.textContent = "Authenticating…";
   try {
     let token = authentication.token();
-    token ??= await authentication.authenticate();
+    if (token === null) {
+      token = await authentication.authenticate();
+      await refreshViewer(token);
+    }
     const pending = pendingVotes.take();
     if (pending?.resourceKey !== card.resource.key) throw new Error("The pending vote was lost.");
     if (card.discussionId === null) {
@@ -77,7 +81,7 @@ async function castVote(card: Card, requested: Vote): Promise<void> {
       card.discussionId = discussion.id;
     }
     const result = await client.vote(card.resource.key, pending.vote, token);
-    render(card, result.up, result.down, result.viewer);
+    render(card, result.up, result.down, result.viewer, card.starred);
     status.textContent = result.viewer === "none"
       ? "Vote removed."
       : result.viewer === "both" ? "Conflicting votes detected." : `${result.viewer} vote saved.`;
@@ -87,6 +91,44 @@ async function castVote(card: Card, requested: Vote): Promise<void> {
     showError(error);
   } finally {
     disable(false);
+  }
+}
+
+async function toggleStar(card: Card): Promise<void> {
+  disable(true);
+  status.textContent = "Authenticating…";
+  try {
+    let token = authentication.token();
+    if (token === null) {
+      token = await authentication.authenticate();
+      await refreshViewer(token);
+    }
+    if (card.discussionId === null) {
+      const discussion = await client.ensure(card.resource, token.creationGrant);
+      card.discussionId = discussion.id;
+    }
+    const starred = await client.toggleStar(card.resource.key, token);
+    card.starred = starred;
+    card.star.setAttribute("aria-pressed", String(starred));
+    status.textContent = starred ? "Star saved." : "Star removed.";
+  } catch (error) {
+    if (error instanceof FeedbackError && error.status === 401) authentication.clear();
+    showError(error);
+  } finally {
+    disable(false);
+  }
+}
+
+async function refreshViewer(token: NonNullable<ReturnType<Authentication["token"]>>): Promise<void> {
+  try {
+    const states = await client.syncViewerReactions(resources.map(({ key }) => key), token);
+    for (const [key, state] of states) {
+      const card = cards.get(key);
+      if (card) render(card, state.up, state.down, state.viewer, state.starred);
+    }
+  } catch (error) {
+    if (error instanceof FeedbackError && error.status === 401) authentication.clear();
+    else showError(error);
   }
 }
 
@@ -101,32 +143,37 @@ function createCard(resource: Resource): Card {
   const up = button("▲ 0");
   const down = button("▼ 0");
   const star = button("★ Star");
-  const card: Card = { resource, discussionId: null, up, down, star };
+  const card: Card = { resource, discussionId: null, up, down, star, starred: false };
   up.addEventListener("click", () => { void castVote(card, "up"); });
   down.addEventListener("click", () => { void castVote(card, "down"); });
-  star.setAttribute("aria-pressed", String(stars.has(resource.key)));
-  star.addEventListener("click", () => {
-    const active = stars.toggle(resource.key);
-    star.setAttribute("aria-pressed", String(active));
-    status.textContent = active ? "Starred locally." : "Local star removed.";
-  });
+  star.setAttribute("aria-pressed", "false");
+  star.addEventListener("click", () => { void toggleStar(card); });
   controls.append(up, down, star);
   article.append(heading, controls);
   requiredElement("cards").append(article);
   return card;
 }
 
-function render(card: Card, up: number, down: number, viewer: ViewerVote = "none"): void {
+function render(
+  card: Card,
+  up: number,
+  down: number,
+  viewer: ViewerVote = "none",
+  starred = false,
+): void {
   card.up.textContent = `▲ ${String(up)}`;
   card.down.textContent = `▼ ${String(down)}`;
   card.up.setAttribute("aria-pressed", String(viewer === "up" || viewer === "both"));
   card.down.setAttribute("aria-pressed", String(viewer === "down" || viewer === "both"));
+  card.star.setAttribute("aria-pressed", String(starred));
+  card.starred = starred;
 }
 
 function disable(value: boolean): void {
   for (const card of cards.values()) {
     card.up.disabled = value;
     card.down.disabled = value;
+    card.star.disabled = value;
   }
 }
 

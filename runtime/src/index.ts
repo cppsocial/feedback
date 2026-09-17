@@ -13,7 +13,6 @@ export { PendingVoteStore } from "./auth/pending-vote.js";
 export type { PendingVote } from "./auth/pending-vote.js";
 export { lookupTerm, resourceFromDocument, validateResourceId } from "./feedback/resources.js";
 export type { DocumentResourceOptions, Mapping, Resource } from "./feedback/resources.js";
-export { Stars } from "./feedback/stars.js";
 export type { KeyValueStorage } from "./feedback/stars.js";
 export { GitHubRequestError, viewerVote, vote } from "./protocol/github.js";
 export type { Vote, ViewerVote, VoteResult } from "./protocol/github.js";

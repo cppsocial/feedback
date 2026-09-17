@@ -121,9 +121,18 @@ void test("last counter values are available before the network responds", async
     apiOrigin: "https://feedback-api.cpp.social",
     site: "cpp-social",
     counterStorage: storage,
-    fetch: () => Promise.resolve(Response.json(response)),
+    fetch: (input) => Promise.resolve(Response.json(
+      (input instanceof Request ? input.url : input.toString()).endsWith("/votes")
+        ? { v: 1, up: 15, down: 2, viewer: "up" }
+        : response,
+    )),
   });
   await first.reactions(["article"]);
+  await first.vote(
+    "article",
+    "up",
+    { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" },
+  );
   const reloaded = new FeedbackClient({
     apiOrigin: "https://feedback-api.cpp.social",
     site: "cpp-social",
@@ -135,7 +144,8 @@ void test("last counter values are available before the network responds", async
 
   assert.ok(cached);
   assert.equal(cached.id, "D_article");
-  assert.equal(cached.up, 14);
+  assert.equal(cached.up, 15);
   assert.equal(cached.down, 2);
   assert.equal(cached.stale, true);
+  assert.equal(cached.viewer, "up");
 });

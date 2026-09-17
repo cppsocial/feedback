@@ -41,7 +41,7 @@ function renderCached(): void {
     const card = cards.get(key);
     if (!card) continue;
     card.discussionId = state.id;
-    render(card, state.up, state.down);
+    render(card, state.up, state.down, state.viewer);
   }
   status.textContent = "Showing saved counts while updating…";
 }
@@ -54,7 +54,7 @@ async function refresh(): Promise<void> {
       const state = states.get(key);
       if (!state) throw new Error(`Missing reaction state for ${key}`);
       card.discussionId = state.id;
-      render(card, state.up, state.down);
+      render(card, state.up, state.down, state.viewer);
       stale ||= state.stale;
     }
     status.textContent = stale ? "Some cached counts could not be refreshed." : "Ready.";

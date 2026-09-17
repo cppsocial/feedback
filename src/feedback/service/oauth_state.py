@@ -111,13 +111,13 @@ class CreationGrantSigner:
         self,
         key: bytes,
         *,
-        lifetime_seconds: int = 300,
+        lifetime_seconds: int = 8 * 60 * 60,
         clock: Callable[[], float] = time.time,
     ) -> None:
         if len(key) < 32:
             raise ValueError("grant signing key must contain at least 32 bytes")
-        if not 60 <= lifetime_seconds <= 600:
-            raise ValueError("grant lifetime must be from 60 through 600 seconds")
+        if not 60 <= lifetime_seconds <= 8 * 60 * 60:
+            raise ValueError("grant lifetime must be from 60 through 28800 seconds")
         self._key = hmac.digest(key, b"discussion-creation-grant", "sha256")
         self._lifetime = lifetime_seconds
         self._clock = clock
@@ -168,7 +168,7 @@ class CreationGrantSigner:
             or not isinstance(value["exp"], int)
             or value["iat"] > now + 30
             or value["exp"] < now
-            or value["exp"] - value["iat"] > 600
+            or value["exp"] - value["iat"] > 8 * 60 * 60
         ):
             raise GrantError("invalid creation grant")
 

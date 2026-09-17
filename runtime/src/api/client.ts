@@ -1,8 +1,8 @@
 import { validateResourceId } from "../feedback/resources.js";
 import type { Resource } from "../feedback/resources.js";
-import type { Vote, VoteResult } from "../protocol/github.js";
+import type { ViewerVote, Vote, VoteResult } from "../protocol/github.js";
 
-export interface ReactionState {
+interface CounterState {
   id: string | null;
   up: number;
   down: number;
@@ -10,10 +10,14 @@ export interface ReactionState {
   stale: boolean;
 }
 
+export interface ReactionState extends CounterState {
+  viewer: ViewerVote;
+}
+
 interface ReactionEnvelope {
   v: 1;
   site: string;
-  items: Record<string, ReactionState>;
+  items: Record<string, CounterState>;
 }
 
 export interface ClientOptions {
@@ -86,9 +90,10 @@ export class FeedbackClient {
     const result = new Map<string, ReactionState>();
     for (const key of normalized) {
       const state = payload.items[key] ?? emptyState();
-      if (!isReactionState(state)) throw new TypeError("Invalid feedback service response");
-      result.set(key, state);
-      this.#storeReaction(key, state);
+      if (!isCounterState(state)) throw new TypeError("Invalid feedback service response");
+      const combined = { ...state, viewer: this.#cachedReaction(key)?.viewer ?? "none" };
+      result.set(key, combined);
+      this.#storeReaction(key, combined);
     }
     return result;
   }
@@ -168,6 +173,7 @@ export class FeedbackClient {
       down: result.down,
       age: 0,
       stale: true,
+      viewer: result.viewer,
     });
     return result;
   }
@@ -239,7 +245,7 @@ export class FeedbackError extends Error {
 }
 
 function emptyState(): ReactionState {
-  return { id: null, up: 0, down: 0, age: 0, stale: false };
+  return { id: null, up: 0, down: 0, age: 0, stale: false, viewer: "none" };
 }
 
 function isEnvelope(value: unknown, site: string): value is ReactionEnvelope {
@@ -248,7 +254,7 @@ function isEnvelope(value: unknown, site: string): value is ReactionEnvelope {
   return candidate.v === 1 && candidate.site === site && !!candidate.items && typeof candidate.items === "object";
 }
 
-function isReactionState(value: unknown): value is ReactionState {
+function isCounterState(value: unknown): value is CounterState {
   if (!value || typeof value !== "object") return false;
   const state = value as Partial<ReactionState>;
   return (
@@ -258,6 +264,14 @@ function isReactionState(value: unknown): value is ReactionState {
     Number.isSafeInteger(state.age) && (state.age ?? -1) >= 0 &&
     typeof state.stale === "boolean"
   );
+}
+
+function isReactionState(value: unknown): value is ReactionState {
+  return isCounterState(value) && isViewerVote((value as Partial<ReactionState>).viewer);
+}
+
+function isViewerVote(value: unknown): value is ViewerVote {
+  return value === "up" || value === "down" || value === "both" || value === "none";
 }
 
 function counterKey(site: string, resource: string): string {

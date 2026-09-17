@@ -166,7 +166,12 @@ async def ensure_discussion(request: Request) -> Response:
         discussion = await container.discussions.ensure(
             site, container.databases[site.id], body.resource
         )
-    except GrantError:
+    except GrantError as exc:
+        oauth_logger.warning(
+            "Discussion creation grant rejected: reason=%s site=%s",
+            str(exc),
+            site.id,
+        )
         raise ApiError("invalid_creation_grant", "Authentication must be restarted.", 401) from None
     except DiscussionError as exc:
         raise ApiError("discussion_invalid", str(exc), 400) from exc

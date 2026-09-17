@@ -57,6 +57,40 @@ async def test_installation_tokens_are_cached() -> None:
 
 
 @pytest.mark.asyncio
+async def test_installation_token_retries_one_rejected_app_bearer(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            return httpx.Response(
+                401,
+                headers={"X-GitHub-Request-Id": "request-123"},
+                json={"message": "A JSON web token could not be decoded"},
+            )
+        return httpx.Response(
+            201,
+            json={"token": "ghs_secret", "expires_at": "2030-01-01T00:00:00Z"},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = GitHubClient(
+            app_id=123, private_key=pem_private_key(), http=http, clock=lambda: 1_000
+        )
+        with caplog.at_level("WARNING", logger="feedback.github"):
+            token = await client.installation_token(7)
+
+    assert token == "ghs_secret"
+    assert requests == 2
+    assert "GitHub App bearer token rejected; retrying once" in caplog.text
+    assert "github_request_id=request-123" in caplog.text
+    assert "JSON web token" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_graphql_refreshes_once_after_unauthorized() -> None:
     token_requests = 0
     graphql_requests = 0

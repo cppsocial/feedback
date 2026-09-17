@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from typing import Any
 
 import httpx
 import jwt
+
+logger = logging.getLogger("feedback.github")
 
 
 class GitHubError(RuntimeError):
@@ -97,15 +100,15 @@ class GitHubClient:
 
     async def _request_installation_token(self, installation_id: int) -> InstallationToken:
         self._raise_if_rate_limited()
-        async with self._requests:
-            response = await self._http.post(
-                f"https://api.github.com/app/installations/{installation_id}/access_tokens",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self.app_jwt()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
+        response = await self._installation_token_request(installation_id)
+        if response.status_code == 401:
+            logger.warning(
+                "GitHub App bearer token rejected; retrying once: status=401 "
+                "github_request_id=%s installation_id=%s",
+                response.headers.get("x-github-request-id"),
+                installation_id,
             )
+            response = await self._installation_token_request(installation_id)
         if response.status_code != 201:
             raise self._error(response, "installation_token_failed")
         self._rate_limit_failures = 0
@@ -119,6 +122,22 @@ class GitHubClient:
         except ValueError as exc:
             raise _response_error(response, "github_malformed_response") from exc
         return InstallationToken(value, expires_at)
+
+    async def _installation_token_request(self, installation_id: int) -> httpx.Response:
+        async with self._requests:
+            try:
+                return await self._http.post(
+                    f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "Authorization": f"Bearer {self.app_jwt()}",
+                        "X-GitHub-Api-Version": "2022-11-28",
+                    },
+                )
+            except httpx.TimeoutException as exc:
+                raise GitHubError("github_timeout") from exc
+            except httpx.RequestError as exc:
+                raise GitHubError("github_transport_error") from exc
 
     async def _graphql_request(
         self, token: str, query: str, variables: Mapping[str, object]

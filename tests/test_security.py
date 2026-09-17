@@ -68,7 +68,7 @@ def test_signed_state_expires() -> None:
         signer.verify(token, site="cpp-social", origin="https://cpp.social", verifier=VERIFIER)
 
 
-def test_creation_grant_is_short_lived_and_origin_bound() -> None:
+def test_creation_grant_matches_login_lifetime_and_is_origin_bound() -> None:
     now = 1_000
     signer = CreationGrantSigner(b"k" * 32, clock=lambda: now)
     grant = signer.issue(site="cpp-social", origin="https://cpp.social", nonce=NONCE)
@@ -77,5 +77,7 @@ def test_creation_grant_is_short_lived_and_origin_bound() -> None:
     with pytest.raises(GrantError):
         signer.verify(grant, site="cpp-social", origin="https://other.example")
     now = 1_301
+    signer.verify(grant, site="cpp-social", origin="https://cpp.social")
+    now = 1_000 + 8 * 60 * 60 + 1
     with pytest.raises(GrantError):
         signer.verify(grant, site="cpp-social", origin="https://cpp.social")

@@ -99,18 +99,20 @@ replaces them with GitHub's absolute counts. Counter responses use `no-cache`, s
 browsers revalidate with this service; that does not imply a GitHub request while
 the relevant snapshot remains fresh.
 
-The browser runtime keeps the last counter snapshot in local storage for up to
-seven days. Consumers can render it synchronously while the API request is in
-flight, avoiding a flash of zero counters. Snapshots contain only the site/resource
-key, discussion node ID, counts, and save time; authentication tokens are not part
-of this cache. Storage is optional and failures fall back to the network normally.
+The browser runtime keeps the last counter snapshot and the last confirmed viewer
+vote state in local storage for up to seven days. Consumers can render them
+synchronously while the API request is in flight, avoiding a flash of zero counters
+or unselected vote buttons. Snapshots contain only the site/resource key, discussion
+node ID, counts, viewer state, and save time; authentication tokens are not part of
+this cache. Storage is optional and failures fall back to the network normally.
 
 Operational logs are emitted at GitHub boundaries rather than for every HTTP
 request. Reaction-refresh lines include the site, trigger (`requested` or
 `sweep`), batch size, updated-row count, and duration. Failures include safe
 GitHub status/request IDs where available. Discussion discovery/creation, OAuth
-failures, vote failures, startup, and sweep summaries are also logged. Client
-IPs, origins, resource URLs, authorization codes, and tokens are not logged.
+failures, rejected creation grants, one-off GitHub App bearer retries, vote
+failures, startup, and sweep summaries are also logged. Client IPs, origins,
+resource URLs, authorization codes, and tokens are not logged.
 
 ## Local checks
 

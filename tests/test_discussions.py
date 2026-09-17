@@ -82,7 +82,9 @@ async def test_ensure_rejects_unconfigured_canonical_origin(config: Config, tmp_
         )
 
 
-def test_ensure_endpoint_requires_an_origin_bound_grant(config: Config) -> None:
+def test_ensure_endpoint_requires_an_origin_bound_grant(
+    config: Config, caplog: pytest.LogCaptureFixture
+) -> None:
     grants = CreationGrantSigner(b"k" * 32, clock=lambda: 1_000)
     app = create_app(
         config,
@@ -106,19 +108,23 @@ def test_ensure_endpoint_requires_an_origin_bound_grant(config: Config) -> None:
                 "grant": grant,
             },
         )
-        rejected = client.post(
-            "/v1/sites/cpp-social/discussions/ensure",
-            headers={"Origin": "https://cpp.social"},
-            json={
-                "key": "feedback/other",
-                "url": "https://cpp.social/other/",
-                "grant": grant[:-1] + ("A" if grant[-1] != "A" else "B"),
-            },
-        )
+        with caplog.at_level("WARNING", logger="feedback.oauth"):
+            rejected = client.post(
+                "/v1/sites/cpp-social/discussions/ensure",
+                headers={"Origin": "https://cpp.social"},
+                json={
+                    "key": "feedback/other",
+                    "url": "https://cpp.social/other/",
+                    "grant": grant[:-1] + ("A" if grant[-1] != "A" else "B"),
+                },
+            )
 
     assert response.status_code == 200
     assert response.json() == {"v": 1, "id": "D_example", "number": 7}
     assert rejected.status_code == 401
+    assert "Discussion creation grant rejected" in caplog.text
+    assert "site=cpp-social" in caplog.text
+    assert grant not in caplog.text
 
 
 @pytest.mark.asyncio

@@ -48,17 +48,31 @@ async def reactions(request: Request) -> Response:
         await container.refresh_stale(site, cached)
     cached = container.databases[site.id].reactions(keys)
     now = int(container.clock())
-    items: dict[str, dict[str, str | int | bool | None]] = {}
+    items: dict[str, dict[str, object]] = {}
     for key in keys:
         item = cached.get(key)
         if item is None:
-            items[key] = {"id": None, "up": 0, "down": 0, "age": 0, "stale": False}
+            items[key] = {
+                "id": None, "up": 0, "down": 0, "upvotes": 0,
+                "reactions": {name: 0 for name in site.reaction_counters},
+                "age": 0, "stale": False,
+            }
             continue
         age = max(0, now - item.fetched_at)
+        reactions = {
+            name: item.reactions.get(name, 0)
+            for name in site.reaction_counters
+        }
+        thumbsup = item.up
+        up = item.up if site.upvote_source == "thumbsup" else item.upvotes
+        if site.upvote_source == "both":
+            up = item.up + item.upvotes
         items[key] = {
             "id": item.node_id,
-            "up": item.up,
-            "down": item.down,
+            "up": up,
+            "down": item.down if site.downvotes else 0,
+            "upvotes": item.upvotes,
+            "reactions": {**reactions, "THUMBS_UP": thumbsup},
             "age": age,
             "stale": age >= site.cache_fresh_seconds,
         }

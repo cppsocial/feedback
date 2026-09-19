@@ -1,0 +1,7 @@
+BEGIN IMMEDIATE;
+
+ALTER TABLE discussions ADD COLUMN upvotes INTEGER NOT NULL DEFAULT 0 CHECK (upvotes >= 0);
+
+PRAGMA user_version = 2;
+
+COMMIT;

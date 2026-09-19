@@ -28,7 +28,9 @@ class ReactionCounts:
     node_id: str
     up: int
     down: int
+    upvotes: int
     fetched_at: int
+    reactions: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +73,10 @@ class SiteDatabase:
         with self.connect() as connection:
             rows = connection.execute(REACTIONS, (json.dumps(keys),)).fetchall()
         return {
-            row[0]: ReactionCounts(node_id=row[1], up=row[2], down=row[3], fetched_at=row[4])
+            row[0]: ReactionCounts(
+                node_id=row[1], up=row[2], down=row[3], upvotes=row[4], fetched_at=row[5],
+                reactions=json.loads(row[6]),
+            )
             for row in rows
         }
 
@@ -86,7 +91,10 @@ class SiteDatabase:
         with self.connect() as connection:
             rows = connection.execute(TRACKED_REACTIONS, (after, fetched_before, limit)).fetchall()
         return [
-            (row[0], ReactionCounts(node_id=row[1], up=row[2], down=row[3], fetched_at=row[4]))
+            (row[0], ReactionCounts(
+                node_id=row[1], up=row[2], down=row[3], upvotes=row[4], fetched_at=row[5],
+                reactions=json.loads(row[6]),
+            ))
             for row in rows
         ]
 
@@ -101,6 +109,8 @@ class SiteDatabase:
         url: str,
         up: int = 0,
         down: int = 0,
+        upvotes: int = 0,
+        reactions: dict[str, int] | None = None,
         fetched_at: int | None = None,
     ) -> None:
         fetched = int(time.time()) if fetched_at is None else fetched_at
@@ -119,6 +129,15 @@ class SiteDatabase:
                     fetched,
                 ),
             )
+            connection.execute(
+                "UPDATE discussions SET upvotes = ? WHERE resource_id = ?",
+                (upvotes, resource_id),
+            )
+            if reactions:
+                connection.executemany(
+                    "INSERT OR REPLACE INTO reaction_counts (resource_id, reaction, count) VALUES (?, ?, ?)",
+                    [(resource_id, name, count) for name, count in reactions.items()],
+                )
 
     def update_reactions(
         self,
@@ -126,6 +145,8 @@ class SiteDatabase:
         node_id: str,
         up: int,
         down: int,
+        upvotes: int,
+        reactions: dict[str, int],
         locked: bool,
         github_updated_at: int | None,
         fetched_at: int,
@@ -133,8 +154,17 @@ class SiteDatabase:
         with self.connect() as connection:
             cursor = connection.execute(
                 UPDATE_REACTIONS,
-                (up, down, locked, github_updated_at, fetched_at, node_id),
+                (up, down, upvotes, locked, github_updated_at, fetched_at, node_id),
             )
+            resource = connection.execute(
+                "SELECT resource_id FROM discussions WHERE github_node_id = ?", (node_id,)
+            ).fetchone()
+            if resource is not None:
+                connection.execute("DELETE FROM reaction_counts WHERE resource_id = ?", (resource[0],))
+                connection.executemany(
+                    "INSERT INTO reaction_counts (resource_id, reaction, count) VALUES (?, ?, ?)",
+                    [(resource[0], name, count) for name, count in reactions.items()],
+                )
         return cursor.rowcount == 1
 
     def adjust_reactions(

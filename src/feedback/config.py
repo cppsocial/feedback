@@ -16,6 +16,8 @@ class ConfigError(ValueError):
 
 _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
+_UPVOTE_SOURCES = frozenset({"thumbsup", "native", "both"})
+_REACTIONS = frozenset({"LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"})
 _SERVICE_KEYS = frozenset(
     {
         "public_origin",
@@ -41,6 +43,9 @@ _SITE_KEYS = frozenset(
         "refresh_cooldown_seconds",
         "refresh_sweep_seconds",
         "max_batch_size",
+        "downvotes",
+        "upvote_source",
+        "reaction_counters",
     }
 )
 
@@ -71,6 +76,9 @@ class SiteConfig:
     refresh_cooldown_seconds: int = 5
     refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
+    downvotes: bool = True
+    upvote_source: str = "thumbsup"
+    reaction_counters: tuple[str, ...] = tuple(sorted(_REACTIONS))
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +146,18 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
         repository = _string(value, "repository")
         if repository.count("/") != 1 or any(not part for part in repository.split("/")):
             raise ConfigError(f"sites.{site_id}.repository must be owner/name")
+        downvotes = _bool(value, "downvotes", True)
+        upvote_source = _string(value, "upvote_source") if "upvote_source" in value else "thumbsup"
+        if upvote_source not in _UPVOTE_SOURCES:
+            raise ConfigError(f"sites.{site_id}.upvote_source is unsupported")
+        reaction_counters = (
+            tuple(item.upper() for item in _string_list(value, "reaction_counters"))
+            if "reaction_counters" in value else tuple(sorted(_REACTIONS))
+        )
+        if not reaction_counters or any(item not in _REACTIONS for item in reaction_counters):
+            raise ConfigError(f"sites.{site_id}.reaction_counters contains an unsupported reaction")
+        if len(set(reaction_counters)) != len(reaction_counters):
+            raise ConfigError(f"sites.{site_id}.reaction_counters contains duplicates")
 
         sites[site_id] = SiteConfig(
             id=site_id,
@@ -154,6 +174,9 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
                 value, "refresh_sweep_seconds", 3600, 604_800, 86_400
             ),
             max_batch_size=_bounded_int(value, "max_batch_size", 1, 100, 100),
+            downvotes=downvotes,
+            upvote_source=upvote_source,
+            reaction_counters=reaction_counters,
         )
 
     return Config(service, MappingProxyType(sites))
@@ -183,6 +206,13 @@ def _string_list(value: Mapping[str, Any], key: str) -> list[str]:
     result = value.get(key)
     if not isinstance(result, list) or any(not isinstance(item, str) for item in result):
         raise ConfigError(f"{key} must be an array of strings")
+    return result
+
+
+def _bool(value: Mapping[str, Any], key: str, default: bool) -> bool:
+    result = value.get(key, default)
+    if not isinstance(result, bool):
+        raise ConfigError(f"{key} must be a boolean")
     return result
 
 

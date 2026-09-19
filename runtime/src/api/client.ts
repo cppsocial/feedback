@@ -6,6 +6,8 @@ interface CounterState {
   id: string | null;
   up: number;
   down: number;
+  upvotes: number;
+  reactions: Record<string, number>;
   age: number;
   stale: boolean;
 }
@@ -363,6 +365,8 @@ function emptyState(): ReactionState {
     id: null,
     up: 0,
     down: 0,
+    upvotes: 0,
+    reactions: {},
     age: 0,
     stale: false,
     viewer: "none",
@@ -384,6 +388,8 @@ function isCounterState(value: unknown): value is CounterState {
     (state.id === null || typeof state.id === "string") &&
     Number.isSafeInteger(state.up) && (state.up ?? -1) >= 0 &&
     Number.isSafeInteger(state.down) && (state.down ?? -1) >= 0 &&
+    Number.isSafeInteger(state.upvotes) && (state.upvotes ?? -1) >= 0 &&
+    !!state.reactions && typeof state.reactions === "object" &&
     Number.isSafeInteger(state.age) && (state.age ?? -1) >= 0 &&
     typeof state.stale === "boolean"
   );

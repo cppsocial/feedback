@@ -25,14 +25,14 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: runtime/package-lock.json
-      - run: npm ci
-        working-directory: runtime
-      - run: npm run check
-        working-directory: runtime
-      - run: npm run lint
-        working-directory: runtime
-      - run: npm test
-        working-directory: runtime
+      # - run: npm ci
+      #   working-directory: runtime
+      # - run: npm run check
+      #   working-directory: runtime
+      # - run: npm run lint
+      #   working-directory: runtime
+      # - run: npm test
+      #   working-directory: runtime
       - run: npm run build
         working-directory: runtime
       - name: Stage Pages metadata

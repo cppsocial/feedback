@@ -1,6 +1,6 @@
 UPDATE discussions
 SET
-    up_count = MAX(0, up_count + ?),
-    down_count = MAX(0, down_count + ?)
-WHERE resource_id = ? AND github_node_id = ?
-RETURNING up_count, down_count
+    thumbsup = MAX(0, thumbsup + ?),
+    thumbsdown = MAX(0, thumbsdown + ?)
+WHERE resource_id = ? AND id = ?
+RETURNING thumbsup, thumbsdown

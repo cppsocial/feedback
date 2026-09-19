@@ -73,7 +73,23 @@ const resource = resourceFromDocument({
 });
 ```
 
+The bundled read-only discussion example can render the feedback site's test
+thread, including labels, canonical reaction counters, minimized comments, and
+replies:
+
+`https://feedback.cpp.social/example/?site=feedback-cpp-social&key=feedback%2Fexample&github=link`
+
 ## Counter cache
+
+The service database is a cache of GitHub discussions. It keeps
+lightweight discussion and comment metadata in `discussions` and `comments`,
+content separately in `content`, main-post reactions in `reactions`, comment
+reactions in `comment_reactions`, and discussion labels through
+`discussion_labels`. Reaction rows retain GitHub account IDs when the API
+returns them; an aggregate remainder row is used for accounts not included in
+the returned user page. The public API is read-only for discussion content and
+counters; discussion creation, voting, starring, and comment moderation are not
+exposed.
 
 `cache_fresh_seconds` is the age at which a requested tracked counter needs an
 authoritative GitHub refresh. The default is five seconds. A batched request

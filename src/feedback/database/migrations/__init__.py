@@ -1,6 +1,6 @@
 from importlib.resources import files
 
-NAMES = ("0001_initial.sql", "0002_reaction_intents.sql")
+NAMES = ("0001_initial.sql",)
 
 
 def scripts() -> tuple[str, ...]:

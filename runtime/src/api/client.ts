@@ -60,6 +60,17 @@ export interface EnsuredDiscussion {
   number: number;
 }
 
+export interface DiscussionContent {
+  readonly discussion: Record<string, unknown>;
+  readonly comments: readonly Record<string, unknown>[];
+}
+
+export interface AddedComment {
+  readonly id: string;
+  readonly body?: string;
+  readonly url?: string;
+}
+
 export class FeedbackClient {
   readonly #apiOrigin: string;
   readonly #site: string;
@@ -124,7 +135,7 @@ export class FeedbackClient {
     if (normalized.length === 0) throw new TypeError("At least one resource key is required");
     const pending = normalized.filter((key) => this.#viewerNeedsSync(key, token.viewerId));
     if (pending.length > 0) {
-      const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/viewer-reactions`, this.#apiOrigin);
+      const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/viewer`, this.#apiOrigin);
       url.searchParams.set("keys", pending.join(","));
       const headers = { Accept: "application/json", Authorization: `Bearer ${token.value}` };
       const init: RequestInit = { headers };
@@ -195,6 +206,45 @@ export class FeedbackClient {
       throw new TypeError("Invalid discussion response");
     }
     return { id: payload.id, number: payload.number };
+  }
+
+  async discussionContent(key: string, signal?: AbortSignal): Promise<DiscussionContent> {
+    validateResourceId(key);
+    const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/discussion`, this.#apiOrigin);
+    url.searchParams.set("keys", key);
+    const init: RequestInit = { headers: { Accept: "application/json" } };
+    if (signal) init.signal = signal;
+    const response = await this.#fetch(url, init);
+    if (!response.ok) throw new FeedbackError(response.status, await errorCode(response));
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object" || (payload as { v?: unknown }).v !== 1) {
+      throw new TypeError("Invalid discussion content response");
+    }
+    const content = (payload as { content?: unknown }).content;
+    if (!content || typeof content !== "object") throw new TypeError("Invalid discussion content response");
+    return { discussion: content as Record<string, unknown>, comments: [] };
+  }
+
+  async addComment(
+    key: string,
+    body: string,
+    token: AccessToken,
+    replyTo?: string,
+    signal?: AbortSignal,
+  ): Promise<AddedComment> {
+    validateResourceId(key);
+    if (!body.trim() || body.length > 16_000) throw new TypeError("Invalid comment body");
+    const payload = await this.#post(
+      "comments",
+      { key, body, ...(replyTo === undefined ? {} : { reply_to: replyTo }) },
+      signal,
+      token.value,
+    );
+    const comment = payload.comment;
+    if (!comment || typeof comment !== "object" || typeof (comment as { id?: unknown }).id !== "string") {
+      throw new TypeError("Invalid comment response");
+    }
+    return comment as AddedComment;
   }
 
   async vote(

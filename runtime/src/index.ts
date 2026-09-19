@@ -9,6 +9,8 @@ export type {
 } from "./api/client.js";
 export { Authentication, AuthenticationError } from "./auth/controller.js";
 export type { AuthenticationOptions } from "./auth/controller.js";
+export { createAuthenticationStatus } from "./auth/status.js";
+export type { AuthenticationStatusController, AuthenticationStatusOptions } from "./auth/status.js";
 export { PendingVoteStore } from "./auth/pending-vote.js";
 export type { PendingVote } from "./auth/pending-vote.js";
 export { lookupTerm, resourceFromDocument, validateResourceId } from "./feedback/resources.js";

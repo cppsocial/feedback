@@ -67,8 +67,14 @@ async def test_refreshes_known_nodes_and_preserves_missing_nodes(
                     "locked": False,
                     "updatedAt": "2026-01-01T00:00:00Z",
                     "reactionGroups": [
-                        {"content": "THUMBS_UP", "users": {"totalCount": 7}},
-                        {"content": "THUMBS_DOWN", "users": {"totalCount": 2}},
+                        {
+                            "content": "THUMBS_UP",
+                            "users": {"totalCount": 7, "nodes": [{"id": "U_one"}]},
+                        },
+                        {
+                            "content": "THUMBS_DOWN",
+                            "users": {"totalCount": 2, "nodes": [{"id": "U_two"}]},
+                        },
                     ],
                 },
                 None,
@@ -83,6 +89,19 @@ async def test_refreshes_known_nodes_and_preserves_missing_nodes(
     assert github.calls == [(123, {"ids": ["D_a", "D_b"]})]
     assert database.reactions(["a"])["a"].up == 7
     assert database.reactions(["b"])["b"].fetched_at == 1
+
+    with database.connect() as connection:
+        reaction_rows = connection.execute(
+            "SELECT reaction, account_id, count FROM reactions WHERE object_id = ? "
+            "ORDER BY reaction, account_id",
+            ("D_a",),
+        ).fetchall()
+    assert reaction_rows == [
+        ("THUMBS_DOWN", "*", 1),
+        ("THUMBS_DOWN", "U_two", 1),
+        ("THUMBS_UP", "*", 6),
+        ("THUMBS_UP", "U_one", 1),
+    ]
 
 
 def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
@@ -130,6 +149,17 @@ def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
         "id": "D_example",
         "up": 9,
         "down": 2,
+        "upvotes": 0,
+        "reactions": {
+            "CONFUSED": 0,
+            "EYES": 0,
+            "HEART": 0,
+            "HOORAY": 0,
+            "LAUGH": 0,
+            "ROCKET": 0,
+            "THUMBS_DOWN": 2,
+            "THUMBS_UP": 9,
+        },
         "age": 0,
         "stale": False,
     }

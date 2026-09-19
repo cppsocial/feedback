@@ -16,6 +16,10 @@ repository_id = "R_kgDOUc9png"
 installation_id = 162105624
 category = "General"
 category_id = "DIC_kwDOUc9pns4DFwQt"
+features = ["counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link"]
+reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+upvote_source = "both"
+downvotes = true
 
 [sites.cpp-social]
 origins = ["https://cpp.social"]

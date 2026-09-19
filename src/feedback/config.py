@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 
@@ -18,6 +18,9 @@ _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
 _UPVOTE_SOURCES = frozenset({"thumbsup", "native", "both"})
 _REACTIONS = frozenset({"LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"})
+_FEATURES = frozenset({
+    "counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link",
+})
 _SERVICE_KEYS = frozenset(
     {
         "public_origin",
@@ -46,6 +49,7 @@ _SITE_KEYS = frozenset(
         "downvotes",
         "upvote_source",
         "reaction_counters",
+        "features",
     }
 )
 
@@ -79,6 +83,7 @@ class SiteConfig:
     downvotes: bool = True
     upvote_source: str = "thumbsup"
     reaction_counters: tuple[str, ...] = tuple(sorted(_REACTIONS))
+    features: frozenset[str] = frozenset(_FEATURES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +163,9 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             raise ConfigError(f"sites.{site_id}.reaction_counters contains an unsupported reaction")
         if len(set(reaction_counters)) != len(reaction_counters):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains duplicates")
+        features = frozenset(_string_list(value, "features")) if "features" in value else _FEATURES
+        if not features or not features <= _FEATURES:
+            raise ConfigError(f"sites.{site_id}.features contains an unsupported feature")
 
         sites[site_id] = SiteConfig(
             id=site_id,
@@ -177,6 +185,7 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             downvotes=downvotes,
             upvote_source=upvote_source,
             reaction_counters=reaction_counters,
+            features=features,
         )
 
     return Config(service, MappingProxyType(sites))
@@ -226,7 +235,7 @@ def _bounded_int(
     result = value.get(key, default)
     if isinstance(result, bool) or not isinstance(result, int) or not minimum <= result <= maximum:
         raise ConfigError(f"{key} must be an integer from {minimum} through {maximum}")
-    return result
+    return cast(int, result)
 
 
 def _origin(value: str, name: str) -> str:

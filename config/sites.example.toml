@@ -22,3 +22,7 @@ category_id = "replace-with-category-node-id"
 # refresh_cooldown_seconds = 5
 # refresh_sweep_seconds = 86400
 # max_batch_size = 100
+features = ["counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link"]
+reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+upvote_source = "both" # thumbsup, native, or both
+downvotes = true

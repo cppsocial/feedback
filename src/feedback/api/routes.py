@@ -14,6 +14,7 @@ from feedback.api.http import (
     ApiError,
     cors,
     ensure_discussion_request,
+    add_comment_request,
     error_response,
     json_strings,
     preflight,
@@ -39,6 +40,7 @@ async def homepage(request: Request) -> Response:
 
 async def reactions(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=request.method == "OPTIONS")
+    require_feature(site, "counters")
     if request.method == "OPTIONS":
         assert origin is not None
         return preflight(origin, method="GET", headers="If-None-Match")
@@ -63,16 +65,21 @@ async def reactions(request: Request) -> Response:
             name: item.reactions.get(name, 0)
             for name in site.reaction_counters
         }
-        thumbsup = item.up
-        up = item.up if site.upvote_source == "thumbsup" else item.upvotes
+        thumbsup = item.thumbsup
+        thumbsdown = item.thumbsdown
+        up = item.thumbsup if site.upvote_source == "thumbsup" else item.upvotes
         if site.upvote_source == "both":
-            up = item.up + item.upvotes
+            up = item.thumbsup + item.upvotes
         items[key] = {
             "id": item.node_id,
             "up": up,
-            "down": item.down if site.downvotes else 0,
+            "down": thumbsdown if site.downvotes else 0,
             "upvotes": item.upvotes,
-            "reactions": {**reactions, "THUMBS_UP": thumbsup},
+            "reactions": {
+                "THUMBS_UP": reactions.get("THUMBS_UP", thumbsup),
+                "THUMBS_DOWN": reactions.get("THUMBS_DOWN", thumbsdown),
+                **reactions,
+            },
             "age": age,
             "stale": age >= site.cache_fresh_seconds,
         }
@@ -170,6 +177,7 @@ async def oauth_exchange(request: Request) -> Response:
 
 async def ensure_discussion(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
+    require_feature(site, "discussion")
     assert origin is not None
     if container.grants is None or container.discussions is None:
         raise ApiError("service_unavailable", "Discussion creation is unavailable.", 503)
@@ -208,8 +216,55 @@ async def ensure_discussion(request: Request) -> Response:
     )
 
 
+async def discussion_content(request: Request) -> Response:
+    container, site, origin = site_context(request, require_origin=True)
+    assert origin is not None
+    require_feature(site, "comments")
+    if container.discussions is None:
+        raise ApiError("service_unavailable", "Discussion content is unavailable.", 503)
+    keys = resource_keys(request.query_params, 1)
+    try:
+        content = await container.discussions.content(
+            site, container.databases[site.id], keys[0]
+        )
+    except DiscussionError as exc:
+        raise ApiError("discussion_not_found", str(exc), 404) from exc
+    except GitHubError as exc:
+        raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
+    return cors(JSONResponse({"v": 1, "site": site.id, "content": content.get("node")}), origin)
+
+
+async def add_comment(request: Request) -> Response:
+    container, site, origin = site_context(request, require_origin=True)
+    assert origin is not None
+    require_feature(site, "comments")
+    if container.discussions is None:
+        raise ApiError("service_unavailable", "Comments are unavailable.", 503)
+    if request.method == "OPTIONS":
+        return preflight(origin, method="POST", headers="Authorization, Content-Type")
+    body = await add_comment_request(request)
+    try:
+        result = await container.discussions.add_comment(
+            site,
+            container.databases[site.id],
+            validate_resource_id(body.key),
+            bearer_token(request),
+            body.body,
+            body.reply_to,
+        )
+    except ResourceError:
+        raise ApiError("invalid_comment", "Comment fields are invalid.", 400) from None
+    except DiscussionError as exc:
+        raise ApiError("discussion_invalid", str(exc), 400) from exc
+    except GitHubError as exc:
+        status = 401 if exc.status == 401 else 502
+        raise ApiError("github_comment_failed", "GitHub rejected the comment.", status) from exc
+    return cors(JSONResponse({"v": 1, "comment": result}, headers={"Cache-Control": "no-store"}), origin)
+
+
 async def submit_vote(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
+    require_feature(site, "voting")
     assert origin is not None
     if container.votes is None:
         raise ApiError("service_unavailable", "Voting is unavailable.", 503)
@@ -255,6 +310,7 @@ async def submit_vote(request: Request) -> Response:
 
 async def viewer_reactions(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
+    require_feature(site, "viewer_reactions")
     assert origin is not None
     if container.votes is None:
         raise ApiError("service_unavailable", "Voting is unavailable.", 503)
@@ -306,6 +362,7 @@ async def viewer_reactions(request: Request) -> Response:
 
 async def toggle_star(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
+    require_feature(site, "voting")
     assert origin is not None
     if container.votes is None:
         raise ApiError("service_unavailable", "Stars are unavailable.", 503)
@@ -352,6 +409,11 @@ async def api_error(request: Request, error: Exception) -> Response:
 
 def services(request: Request) -> FeedbackRuntime:
     return cast(FeedbackRuntime, request.app.state.services)
+
+
+def require_feature(site: SiteConfig, feature: str) -> None:
+    if feature not in site.features:
+        raise ApiError("feature_disabled", "This feature is not enabled for the site.", 404)
 
 
 def bearer_token(request: Request) -> str:

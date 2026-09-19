@@ -17,13 +17,12 @@ from feedback.api.http import ApiError
 from feedback.api.middleware import SecurityHeadersMiddleware
 from feedback.api.routes import (
     api_error,
-    ensure_discussion,
+    discussion_content,
+    add_comment,
     homepage,
     oauth_authorize,
     oauth_exchange,
     reactions,
-    submit_vote,
-    toggle_star,
     viewer_reactions,
 )
 from feedback.config import Config
@@ -127,7 +126,7 @@ def create_app(
     application = Starlette(
         routes=[
             Route("/", homepage, methods=["GET"]),
-            Route("/v1/sites/{site}/reactions", reactions, methods=["GET", "OPTIONS"]),
+            Route("/v1/sites/{site}/reactions", reactions, methods=["GET"]),
             Route(
                 "/v1/sites/{site}/oauth/authorize",
                 oauth_authorize,
@@ -139,24 +138,19 @@ def create_app(
                 methods=["POST", "OPTIONS"],
             ),
             Route(
-                "/v1/sites/{site}/discussions/ensure",
-                ensure_discussion,
+                "/v1/sites/{site}/discussion",
+                discussion_content,
+                methods=["GET"],
+            ),
+            Route(
+                "/v1/sites/{site}/comments",
+                add_comment,
                 methods=["POST", "OPTIONS"],
             ),
             Route(
-                "/v1/sites/{site}/votes",
-                submit_vote,
-                methods=["POST", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/viewer-reactions",
+                "/v1/sites/{site}/viewer",
                 viewer_reactions,
                 methods=["GET", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/stars",
-                toggle_star,
-                methods=["POST", "OPTIONS"],
             ),
         ],
         lifespan=lifespan,

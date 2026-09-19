@@ -24,6 +24,13 @@ class EnsureDiscussionRequest:
     grant: str
 
 
+@dataclass(frozen=True, slots=True)
+class AddCommentRequest:
+    key: str
+    body: str
+    reply_to: str | None
+
+
 def resource_keys(query: QueryParams, maximum: int) -> list[str]:
     parameters = list(query.multi_items())
     if len(parameters) != 1 or parameters[0][0] != "keys":
@@ -106,6 +113,20 @@ async def ensure_discussion_request(request: Request) -> EnsureDiscussionRequest
         ),
         cast(str, body["grant"]),
     )
+
+
+async def add_comment_request(request: Request) -> AddCommentRequest:
+    body = await json_object(request, maximum_body_size=20_480)
+    if set(body) - {"key", "body", "reply_to"} or not {"key", "body"} <= set(body):
+        raise ApiError("invalid_comment", "Comment fields are invalid.", 400)
+    key = body["key"]
+    text = body["body"]
+    reply_to = body.get("reply_to")
+    if not _is_string(key, 4096) or not _is_string(text, 16_000):
+        raise ApiError("invalid_comment", "Comment fields are invalid.", 400)
+    if reply_to is not None and not _is_string(reply_to, 256):
+        raise ApiError("invalid_comment", "Comment fields are invalid.", 400)
+    return AddCommentRequest(key, text, reply_to)
 
 
 def error_response(error: ApiError) -> JSONResponse:

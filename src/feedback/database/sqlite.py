@@ -26,8 +26,8 @@ class DatabaseError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class ReactionCounts:
     node_id: str
-    up: int
-    down: int
+    thumbsup: int
+    thumbsdown: int
     upvotes: int
     fetched_at: int
     reactions: dict[str, int]
@@ -74,7 +74,7 @@ class SiteDatabase:
             rows = connection.execute(REACTIONS, (json.dumps(keys),)).fetchall()
         return {
             row[0]: ReactionCounts(
-                node_id=row[1], up=row[2], down=row[3], upvotes=row[4], fetched_at=row[5],
+                node_id=row[1], thumbsup=row[2], thumbsdown=row[3], upvotes=row[4], fetched_at=row[5],
                 reactions=json.loads(row[6]),
             )
             for row in rows
@@ -85,6 +85,39 @@ class SiteDatabase:
             row = connection.execute(DISCUSSION, (resource_id,)).fetchone()
         return Discussion(*row) if row is not None else None
 
+    def comment_belongs_to(self, comment_id: str, discussion_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ?",
+                (comment_id, discussion_id),
+            ).fetchone()
+        return row is not None
+
+    def comment_can_receive_reply(self, comment_id: str, discussion_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ? "
+                "AND parent_id IS NULL",
+                (comment_id, discussion_id),
+            ).fetchone()
+        return row is not None
+
+    def put_comment(
+        self, *, comment_id: str, discussion_id: str, parent_id: str | None,
+        body: str, url: str | None, fetched_at: int,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO content (id, body) VALUES (?, ?)",
+                (comment_id, body),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO comments "
+                "(id, discussion_id, parent_id, content_id, url, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (comment_id, discussion_id, parent_id, comment_id, url, fetched_at),
+            )
+
     def tracked_reactions(
         self, *, after: str, fetched_before: int, limit: int
     ) -> list[tuple[str, ReactionCounts]]:
@@ -92,7 +125,7 @@ class SiteDatabase:
             rows = connection.execute(TRACKED_REACTIONS, (after, fetched_before, limit)).fetchall()
         return [
             (row[0], ReactionCounts(
-                node_id=row[1], up=row[2], down=row[3], upvotes=row[4], fetched_at=row[5],
+                node_id=row[1], thumbsup=row[2], thumbsdown=row[3], upvotes=row[4], fetched_at=row[5],
                 reactions=json.loads(row[6]),
             ))
             for row in rows
@@ -107,8 +140,8 @@ class SiteDatabase:
         number: int,
         title: str,
         url: str,
-        up: int = 0,
-        down: int = 0,
+        thumbsup: int = 0,
+        thumbsdown: int = 0,
         upvotes: int = 0,
         reactions: dict[str, int] | None = None,
         fetched_at: int | None = None,
@@ -124,8 +157,8 @@ class SiteDatabase:
                     number,
                     title,
                     url,
-                    up,
-                    down,
+                    thumbsup,
+                    thumbsdown,
                     fetched,
                 ),
             )
@@ -135,35 +168,43 @@ class SiteDatabase:
             )
             if reactions:
                 connection.executemany(
-                    "INSERT OR REPLACE INTO reaction_counts (resource_id, reaction, count) VALUES (?, ?, ?)",
-                    [(resource_id, name, count) for name, count in reactions.items()],
+                    "INSERT OR REPLACE INTO reactions "
+                    "(discussion_id, reaction, account_id, count, updated_at) "
+                    "VALUES (?, ?, '*', ?, ?)",
+                    [(node_id, name, count, fetched) for name, count in reactions.items()],
                 )
 
     def update_reactions(
         self,
         *,
         node_id: str,
-        up: int,
-        down: int,
+        thumbsup: int,
+        thumbsdown: int,
         upvotes: int,
-        reactions: dict[str, int],
+        reactions: dict[str, tuple[int, tuple[str, ...]]],
         locked: bool,
-        github_updated_at: int | None,
+        updated_at: int | None,
         fetched_at: int,
     ) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
                 UPDATE_REACTIONS,
-                (up, down, upvotes, locked, github_updated_at, fetched_at, node_id),
+                (thumbsup, thumbsdown, upvotes, locked, updated_at, fetched_at, node_id),
             )
-            resource = connection.execute(
-                "SELECT resource_id FROM discussions WHERE github_node_id = ?", (node_id,)
-            ).fetchone()
-            if resource is not None:
-                connection.execute("DELETE FROM reaction_counts WHERE resource_id = ?", (resource[0],))
+            if cursor.rowcount == 1:
+                connection.execute(
+                    "DELETE FROM reactions WHERE discussion_id = ?",
+                    (node_id,),
+                )
                 connection.executemany(
-                    "INSERT INTO reaction_counts (resource_id, reaction, count) VALUES (?, ?, ?)",
-                    [(resource[0], name, count) for name, count in reactions.items()],
+                    "INSERT INTO reactions "
+                    "(discussion_id, reaction, account_id, count, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    [
+                        (node_id, name, account_id, count, fetched_at)
+                        for name, (total, accounts) in reactions.items()
+                        for account_id, count in _reaction_rows(total, accounts)
+                    ],
                 )
         return cursor.rowcount == 1
 
@@ -172,12 +213,21 @@ class SiteDatabase:
         *,
         resource_id: str,
         node_id: str,
-        up_delta: int,
-        down_delta: int,
+        thumbsup_delta: int,
+        thumbsdown_delta: int,
     ) -> tuple[int, int] | None:
         with self.connect() as connection:
             row = connection.execute(
                 ADJUST_REACTIONS,
-                (up_delta, down_delta, resource_id, node_id),
+                (thumbsup_delta, thumbsdown_delta, resource_id, node_id),
             ).fetchone()
         return (row[0], row[1]) if row is not None else None
+
+
+def _reaction_rows(total: int, accounts: tuple[str, ...]) -> list[tuple[str, int]]:
+    unique = tuple(dict.fromkeys(accounts))
+    rows = [(account_id, 1) for account_id in unique]
+    remainder = total - len(unique)
+    if remainder > 0:
+        rows.append(("*", remainder))
+    return rows

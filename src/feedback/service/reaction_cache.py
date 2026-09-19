@@ -10,7 +10,7 @@ from feedback.database.sqlite import ReactionCounts, SiteDatabase
 from feedback.protocol.github.client import GitHubError
 from feedback.protocol.github.queries import load
 
-_NODES_QUERY = load("reaction_counts")
+_NODES_QUERY = load("discussion_reactions")
 
 
 class GraphQLClient(Protocol):
@@ -52,21 +52,23 @@ class ReactionRefresher:
                 parsed = _parse_node(node)
                 if parsed is None:
                     continue
-                node_id, up, down, upvotes, reactions, locked, updated_at = parsed
+                node_id, thumbsup, thumbsdown, upvotes, reactions, locked, updated_at = parsed
                 refreshed += database.update_reactions(
                     node_id=node_id,
-                    up=up,
-                    down=down,
+                    thumbsup=thumbsup,
+                    thumbsdown=thumbsdown,
                     upvotes=upvotes,
                     reactions=reactions,
                     locked=locked,
-                    github_updated_at=updated_at,
+                    updated_at=updated_at,
                     fetched_at=fetched_at,
                 )
         return refreshed
 
 
-def _parse_node(value: object) -> tuple[str, int, int, int, dict[str, int], bool, int | None] | None:
+def _parse_node(
+    value: object,
+) -> tuple[str, int, int, int, dict[str, tuple[int, tuple[str, ...]]], bool, int | None] | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -77,7 +79,7 @@ def _parse_node(value: object) -> tuple[str, int, int, int, dict[str, int], bool
     groups = value.get("reactionGroups")
     if not isinstance(node_id, str) or not isinstance(locked, bool) or not isinstance(groups, list):
         raise GitHubError("github_malformed_response")
-    counts: dict[str, int] = {}
+    counts: dict[str, tuple[int, tuple[str, ...]]] = {}
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("content"), str):
             raise GitHubError("github_malformed_response")
@@ -87,7 +89,16 @@ def _parse_node(value: object) -> tuple[str, int, int, int, dict[str, int], bool
         count = users.get("totalCount")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise GitHubError("github_malformed_response")
-        counts[group["content"]] = count
+        nodes = users.get("nodes", [])
+        if not isinstance(nodes, list):
+            raise GitHubError("github_malformed_response")
+        accounts = tuple(
+            node["id"] for node in nodes
+            if isinstance(node, dict) and isinstance(node.get("id"), str)
+        )
+        if len(accounts) != len(nodes):
+            raise GitHubError("github_malformed_response")
+        counts[group["content"]] = (count, accounts)
     updated_at: int | None = None
     if updated is not None:
         if not isinstance(updated, str):
@@ -100,7 +111,10 @@ def _parse_node(value: object) -> tuple[str, int, int, int, dict[str, int], bool
     if isinstance(upvotes, bool) or not isinstance(upvotes, int) or upvotes < 0:
         raise GitHubError("github_malformed_response")
     return (
-        node_id, counts.get("THUMBS_UP", 0), counts.get("THUMBS_DOWN", 0), upvotes,
-        {name: count for name, count in counts.items() if name != "THUMBS_UP" and name != "THUMBS_DOWN"},
+        node_id,
+        counts.get("THUMBS_UP", (0, ()))[0],
+        counts.get("THUMBS_DOWN", (0, ()))[0],
+        upvotes,
+        counts,
         locked, updated_at,
     )

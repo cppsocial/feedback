@@ -1,9 +1,9 @@
 UPDATE discussions
 SET
-    up_count = ?,
-    down_count = ?,
+    thumbsup = ?,
+    thumbsdown = ?,
     upvotes = ?,
     locked = ?,
-    github_updated_at = ?,
+    updated_at = ?,
     fetched_at = ?
-WHERE github_node_id = ?
+WHERE id = ?

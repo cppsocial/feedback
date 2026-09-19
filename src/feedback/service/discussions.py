@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol
+import time
+from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from feedback.config import SiteConfig
@@ -21,6 +22,12 @@ class DiscussionGateway(Protocol):
     async def find(self, site: SiteConfig, lookup_term: str) -> GitHubDiscussion | None: ...
 
     async def create(self, site: SiteConfig, *, title: str, body: str) -> GitHubDiscussion: ...
+
+    async def content(self, site: SiteConfig, discussion_id: str, comments: int = 100) -> dict[str, Any]: ...
+
+    async def add_comment(
+        self, token: str, discussion_id: str, body: str, reply_to_id: str | None
+    ) -> dict[str, Any]: ...
 
 
 class DiscussionService:
@@ -58,8 +65,10 @@ class DiscussionService:
                 number=github.number,
                 title=github.title,
                 url=github.url,
-                up=github.up,
-                down=github.down,
+                thumbsup=github.thumbsup,
+                thumbsdown=github.thumbsdown,
+                upvotes=github.upvotes,
+                reactions=github.reactions or {},
             )
             result = database.discussion(resource.key)
             if result is None:
@@ -71,6 +80,40 @@ class DiscussionService:
                 github.number,
             )
             return result
+
+    async def content(self, site: SiteConfig, database: SiteDatabase, resource_id: str) -> dict[str, Any]:
+        discussion = database.discussion(resource_id)
+        if discussion is None:
+            raise DiscussionError("discussion does not exist")
+        return await self._github.content(site, discussion.node_id)
+
+    async def add_comment(
+        self,
+        site: SiteConfig,
+        database: SiteDatabase,
+        resource_id: str,
+        token: str,
+        body: str,
+        reply_to_id: str | None,
+    ) -> dict[str, Any]:
+        discussion = database.discussion(resource_id)
+        if discussion is None:
+            raise DiscussionError("discussion does not exist")
+        if reply_to_id is not None and not database.comment_can_receive_reply(
+            reply_to_id, discussion.node_id
+        ):
+            raise DiscussionError("reply target does not belong to discussion")
+        result = await self._github.add_comment(token, discussion.node_id, body, reply_to_id)
+        comment_id = result["id"]
+        database.put_comment(
+            comment_id=comment_id,
+            discussion_id=discussion.node_id,
+            parent_id=reply_to_id,
+            body=str(result.get("body", body)),
+            url=result.get("url") if isinstance(result.get("url"), str) else None,
+            fetched_at=int(time.time()),
+        )
+        return result
 
 
 def _canonical_url(value: str | None, allowed_origins: tuple[str, ...]) -> str:

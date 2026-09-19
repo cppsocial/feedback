@@ -1,0 +1,13 @@
+mutation FeedbackAddDiscussionComment($discussionId: ID!, $body: String!, $replyToId: ID) {
+  addDiscussionComment(input: {
+    discussionId: $discussionId
+    body: $body
+    replyToId: $replyToId
+  }) {
+    comment {
+      id
+      body
+      url
+    }
+  }
+}

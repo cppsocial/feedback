@@ -16,13 +16,19 @@ class GitHubDiscussion:
     title: str
     url: str
     locked: bool
-    up: int
-    down: int
+    thumbsup: int
+    thumbsdown: int
+    upvotes: int = 0
+    reactions: dict[str, int] | None = None
 
 
 class GraphQLClient(Protocol):
     async def graphql(
         self, installation_id: int, query: str, variables: Mapping[str, object]
+    ) -> dict[str, Any]: ...
+
+    async def graphql_as_user(
+        self, token: str, query: str, variables: Mapping[str, object]
     ) -> dict[str, Any]: ...
 
 
@@ -80,6 +86,27 @@ class GitHubDiscussions:
             raise GitHubError("github_malformed_response")
         return discussion
 
+    async def content(self, site: SiteConfig, discussion_id: str, comments: int = 100) -> dict[str, Any]:
+        return await self._client.graphql(
+            site.installation_id,
+            load("discussion"),
+            {"id": discussion_id, "comments": comments},
+        )
+
+    async def add_comment(
+        self, token: str, discussion_id: str, body: str, reply_to_id: str | None
+    ) -> dict[str, Any]:
+        data = await self._client.graphql_as_user(
+            token,
+            load("add_comment"),
+            {"discussionId": discussion_id, "body": body, "replyToId": reply_to_id},
+        )
+        result = data.get("addDiscussionComment")
+        comment = result.get("comment") if isinstance(result, dict) else None
+        if not isinstance(comment, dict) or not isinstance(comment.get("id"), str):
+            raise GitHubError("github_malformed_response")
+        return comment
+
 
 def _parse(value: object, site: SiteConfig) -> GitHubDiscussion | None:
     if value is None:
@@ -106,11 +133,14 @@ def _parse(value: object, site: SiteConfig) -> GitHubDiscussion | None:
         or not isinstance(locked, bool)
     ):
         raise GitHubError("github_malformed_response")
-    up, down = _vote_counts(value.get("reactionGroups"))
-    return GitHubDiscussion(node_id, number, title, url, locked, up, down)
+    thumbsup, thumbsdown, reactions = _vote_counts(value.get("reactionGroups"))
+    upvotes = value.get("upvoteCount", 0)
+    if isinstance(upvotes, bool) or not isinstance(upvotes, int) or upvotes < 0:
+        raise GitHubError("github_malformed_response")
+    return GitHubDiscussion(node_id, number, title, url, locked, thumbsup, thumbsdown, upvotes, reactions)
 
 
-def _vote_counts(value: object) -> tuple[int, int]:
+def _vote_counts(value: object) -> tuple[int, int, dict[str, int]]:
     if not isinstance(value, list):
         raise GitHubError("github_malformed_response")
     counts: dict[str, int] = {}
@@ -122,4 +152,8 @@ def _vote_counts(value: object) -> tuple[int, int]:
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise GitHubError("github_malformed_response")
         counts[group["content"]] = count
-    return counts.get("THUMBS_UP", 0), counts.get("THUMBS_DOWN", 0)
+    return (
+        counts.get("THUMBS_UP", 0),
+        counts.get("THUMBS_DOWN", 0),
+        counts,
+    )

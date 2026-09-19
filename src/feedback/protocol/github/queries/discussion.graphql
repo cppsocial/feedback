@@ -1,0 +1,38 @@
+query FeedbackDiscussion($id: ID!, $comments: Int!) {
+  node(id: $id) {
+    ... on Discussion {
+      id
+      number
+      title
+      body
+      url
+      repository { id }
+      category { id name }
+      labels(first: 100) { nodes { id name color description } }
+      reactionGroups { content users { totalCount nodes { id } } }
+      upvoteCount
+      poll {
+        question
+        options { option totalVotes viewerHasVoted }
+      }
+      answer { id }
+      comments(first: $comments) {
+        nodes {
+          id body url
+          author { ... on Actor { id login } }
+          createdAt updatedAt isMinimized minimizedReason
+          isAnswer isAnswerVerified
+          reactionGroups { content users { totalCount nodes { id } } }
+          replies(first: $comments) {
+            nodes {
+              id body url
+              author { ... on Actor { id login } }
+              createdAt updatedAt isMinimized minimizedReason
+              reactionGroups { content users { totalCount nodes { id } } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

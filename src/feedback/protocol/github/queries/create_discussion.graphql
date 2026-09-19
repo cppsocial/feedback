@@ -6,6 +6,7 @@ mutation CreateFeedbackDiscussion($input: CreateDiscussionInput!) {
       title
       url
       locked
+      upvoteCount
       repository { id }
       category { id }
       reactionGroups {

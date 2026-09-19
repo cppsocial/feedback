@@ -1,7 +1,7 @@
 [service]
 public_origin = "https://feedback-api.example.com"
 oauth_callback = "https://feedback.example.com/v1/oauth/callback.html"
-data_directory = "/data/sites"
+data_directory = "/data"
 github_app_id = 1
 github_client_id = "replace-with-github-client-id"
 github_concurrency = 2

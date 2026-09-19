@@ -24,6 +24,11 @@ The secret files must be readable by UID 10001 in the container. Root-owned mode
 `0444` is suitable because Docker bind-mounts them read-only. The application
 configuration itself is committed as `config/sites.toml`.
 
+Production SQLite files are persisted in the checkout's `db/` directory. The
+deployment bind-mounts `/srv/feedback/db` to `/data` in the container, so the
+site databases are `/srv/feedback/db/<site-id>.sqlite3`. They are ignored by
+Git and survive container rebuilds and replacement.
+
 The process is configured with explicit command-line arguments rather than
 environment variables. `python -m feedback --help` lists the config, secret-file,
 listener, proxy-trust, concurrency, and keep-alive options. Docker Compose passes

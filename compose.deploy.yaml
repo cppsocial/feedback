@@ -30,7 +30,7 @@ services:
       - "127.0.0.1:18080:8080"
     volumes:
       - ./config/sites.toml:/run/config/sites.toml:ro
-      - feedback-data:/data
+      - ./db:/data
     secrets:
       - github-app-private-key
       - github-client-secret
@@ -65,6 +65,3 @@ secrets:
     file: ./config/secrets/github-client-secret
   oauth-state-hmac-key:
     file: ./config/secrets/oauth-state-hmac-key
-
-volumes:
-  feedback-data:

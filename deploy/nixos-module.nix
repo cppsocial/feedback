@@ -43,6 +43,8 @@ in
         WorkingDirectory = cfg.repositoryDirectory;
         ExecStartPre = [
           "${pkgs.coreutils}/bin/test -s config/sites.toml"
+          "${pkgs.coreutils}/bin/install -d -o 10001 -g 10001 -m 0750 db"
+          "${pkgs.coreutils}/bin/chown -R 10001:10001 db"
           "${pkgs.coreutils}/bin/test -s config/secrets/github-app-private-key.pem"
           "${pkgs.coreutils}/bin/test -s config/secrets/github-client-secret"
           "${pkgs.coreutils}/bin/test -s config/secrets/oauth-state-hmac-key"

@@ -18,9 +18,17 @@ _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
 _UPVOTE_SOURCES = frozenset({"thumbsup", "native", "both"})
 _REACTIONS = frozenset({"LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"})
-_FEATURES = frozenset({
-    "counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link",
-})
+_FEATURES = frozenset(
+    {
+        "counters",
+        "viewer_reactions",
+        "voting",
+        "discussion",
+        "comments",
+        "labels",
+        "github_link",
+    }
+)
 _SERVICE_KEYS = frozenset(
     {
         "public_origin",
@@ -157,7 +165,8 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             raise ConfigError(f"sites.{site_id}.upvote_source is unsupported")
         reaction_counters = (
             tuple(item.upper() for item in _string_list(value, "reaction_counters"))
-            if "reaction_counters" in value else tuple(sorted(_REACTIONS))
+            if "reaction_counters" in value
+            else tuple(sorted(_REACTIONS))
         )
         if not reaction_counters or any(item not in _REACTIONS for item in reaction_counters):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains an unsupported reaction")

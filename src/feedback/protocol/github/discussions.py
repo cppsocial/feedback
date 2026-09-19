@@ -86,7 +86,9 @@ class GitHubDiscussions:
             raise GitHubError("github_malformed_response")
         return discussion
 
-    async def content(self, site: SiteConfig, discussion_id: str, comments: int = 100) -> dict[str, Any]:
+    async def content(
+        self, site: SiteConfig, discussion_id: str, comments: int = 100
+    ) -> dict[str, Any]:
         return await self._client.graphql(
             site.installation_id,
             load("discussion"),
@@ -137,7 +139,9 @@ def _parse(value: object, site: SiteConfig) -> GitHubDiscussion | None:
     upvotes = value.get("upvoteCount", 0)
     if isinstance(upvotes, bool) or not isinstance(upvotes, int) or upvotes < 0:
         raise GitHubError("github_malformed_response")
-    return GitHubDiscussion(node_id, number, title, url, locked, thumbsup, thumbsdown, upvotes, reactions)
+    return GitHubDiscussion(
+        node_id, number, title, url, locked, thumbsup, thumbsdown, upvotes, reactions
+    )
 
 
 def _vote_counts(value: object) -> tuple[int, int, dict[str, int]]:

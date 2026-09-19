@@ -239,9 +239,7 @@ async def test_github_star_adds_eyes_reaction() -> None:
                 "data": {
                     "add": {
                         "subject": {
-                            "reactionGroups": [
-                                {"content": "EYES", "viewerHasReacted": True}
-                            ]
+                            "reactionGroups": [{"content": "EYES", "viewerHasReacted": True}]
                         }
                     }
                 }

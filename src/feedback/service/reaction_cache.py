@@ -93,7 +93,8 @@ def _parse_node(
         if not isinstance(nodes, list):
             raise GitHubError("github_malformed_response")
         accounts = tuple(
-            node["id"] for node in nodes
+            node["id"]
+            for node in nodes
             if isinstance(node, dict) and isinstance(node.get("id"), str)
         )
         if len(accounts) != len(nodes):
@@ -116,5 +117,6 @@ def _parse_node(
         counts.get("THUMBS_DOWN", (0, ()))[0],
         upvotes,
         counts,
-        locked, updated_at,
+        locked,
+        updated_at,
     )

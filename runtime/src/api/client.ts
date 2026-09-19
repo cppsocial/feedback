@@ -276,6 +276,8 @@ export class FeedbackClient {
       id: cached?.id ?? null,
       up: result.up,
       down: result.down,
+      upvotes: cached?.upvotes ?? 0,
+      reactions: cached?.reactions ?? {},
       age: 0,
       stale: true,
       viewer: result.viewer,

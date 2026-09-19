@@ -74,7 +74,11 @@ class SiteDatabase:
             rows = connection.execute(REACTIONS, (json.dumps(keys),)).fetchall()
         return {
             row[0]: ReactionCounts(
-                node_id=row[1], thumbsup=row[2], thumbsdown=row[3], upvotes=row[4], fetched_at=row[5],
+                node_id=row[1],
+                thumbsup=row[2],
+                thumbsdown=row[3],
+                upvotes=row[4],
+                fetched_at=row[5],
                 reactions=json.loads(row[6]),
             )
             for row in rows
@@ -96,15 +100,20 @@ class SiteDatabase:
     def comment_can_receive_reply(self, comment_id: str, discussion_id: str) -> bool:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ? "
-                "AND parent_id IS NULL",
+                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ? AND parent_id IS NULL",
                 (comment_id, discussion_id),
             ).fetchone()
         return row is not None
 
     def put_comment(
-        self, *, comment_id: str, discussion_id: str, parent_id: str | None,
-        body: str, url: str | None, fetched_at: int,
+        self,
+        *,
+        comment_id: str,
+        discussion_id: str,
+        parent_id: str | None,
+        body: str,
+        url: str | None,
+        fetched_at: int,
     ) -> None:
         with self.connect() as connection:
             connection.execute(
@@ -124,10 +133,17 @@ class SiteDatabase:
         with self.connect() as connection:
             rows = connection.execute(TRACKED_REACTIONS, (after, fetched_before, limit)).fetchall()
         return [
-            (row[0], ReactionCounts(
-                node_id=row[1], thumbsup=row[2], thumbsdown=row[3], upvotes=row[4], fetched_at=row[5],
-                reactions=json.loads(row[6]),
-            ))
+            (
+                row[0],
+                ReactionCounts(
+                    node_id=row[1],
+                    thumbsup=row[2],
+                    thumbsdown=row[3],
+                    upvotes=row[4],
+                    fetched_at=row[5],
+                    reactions=json.loads(row[6]),
+                ),
+            )
             for row in rows
         ]
 

@@ -16,9 +16,9 @@ from starlette.routing import Route
 from feedback.api.http import ApiError
 from feedback.api.middleware import SecurityHeadersMiddleware
 from feedback.api.routes import (
+    add_comment,
     api_error,
     discussion_content,
-    add_comment,
     homepage,
     oauth_authorize,
     oauth_exchange,

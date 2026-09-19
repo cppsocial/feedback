@@ -12,9 +12,9 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from feedback.api.http import (
     ApiError,
+    add_comment_request,
     cors,
     ensure_discussion_request,
-    add_comment_request,
     error_response,
     json_strings,
     preflight,
@@ -55,16 +55,17 @@ async def reactions(request: Request) -> Response:
         item = cached.get(key)
         if item is None:
             items[key] = {
-                "id": None, "up": 0, "down": 0, "upvotes": 0,
+                "id": None,
+                "up": 0,
+                "down": 0,
+                "upvotes": 0,
                 "reactions": {name: 0 for name in site.reaction_counters},
-                "age": 0, "stale": False,
+                "age": 0,
+                "stale": False,
             }
             continue
         age = max(0, now - item.fetched_at)
-        reactions = {
-            name: item.reactions.get(name, 0)
-            for name in site.reaction_counters
-        }
+        reactions = {name: item.reactions.get(name, 0) for name in site.reaction_counters}
         thumbsup = item.thumbsup
         thumbsdown = item.thumbsdown
         up = item.thumbsup if site.upvote_source == "thumbsup" else item.upvotes
@@ -224,9 +225,7 @@ async def discussion_content(request: Request) -> Response:
         raise ApiError("service_unavailable", "Discussion content is unavailable.", 503)
     keys = resource_keys(request.query_params, 1)
     try:
-        content = await container.discussions.content(
-            site, container.databases[site.id], keys[0]
-        )
+        content = await container.discussions.content(site, container.databases[site.id], keys[0])
     except DiscussionError as exc:
         raise ApiError("discussion_not_found", str(exc), 404) from exc
     except GitHubError as exc:
@@ -259,7 +258,9 @@ async def add_comment(request: Request) -> Response:
     except GitHubError as exc:
         status = 401 if exc.status == 401 else 502
         raise ApiError("github_comment_failed", "GitHub rejected the comment.", status) from exc
-    return cors(JSONResponse({"v": 1, "comment": result}, headers={"Cache-Control": "no-store"}), origin)
+    return cors(
+        JSONResponse({"v": 1, "comment": result}, headers={"Cache-Control": "no-store"}), origin
+    )
 
 
 async def submit_vote(request: Request) -> Response:

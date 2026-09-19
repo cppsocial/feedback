@@ -25,7 +25,7 @@ jobs:
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001 \
             --entrypoint python feedback:${{ github.sha }} \
             -c 'import os; assert os.getuid() == 10001; import feedback'
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: feedback:${{ github.sha }}
           format: table

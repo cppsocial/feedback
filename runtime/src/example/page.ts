@@ -58,7 +58,20 @@ async function render(): Promise<void> {
     const root = required("thread");
     root.replaceChildren();
     appendText(root, "h2", string(content.title) || key);
+    const category = record(content.category);
+    if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
+    renderLabels(root, content.labels);
     appendText(root, "p", string(content.body));
+    if (state) {
+      appendText(
+        root,
+        "span",
+        `Thumbs up: ${String(state.reactions.THUMBS_UP ?? state.up)}  ` +
+          `Thumbs down: ${String(state.reactions.THUMBS_DOWN ?? state.down)}  ` +
+          `Upvotes: ${String(state.upvotes)}`,
+        "tag",
+      );
+    }
     renderPoll(root, record(content.poll));
     const reactions = document.createElement("div");
     reactions.className = "reactions";
@@ -83,6 +96,15 @@ async function render(): Promise<void> {
     status.textContent = "Ready.";
   } catch (error) {
     status.textContent = error instanceof FeedbackError ? error.code : "Unable to load discussion.";
+  }
+}
+
+function renderLabels(parent: HTMLElement, value: unknown): void {
+  const nodes = record(value)?.nodes;
+  if (!Array.isArray(nodes)) return;
+  for (const label of nodes) {
+    const item = record(label);
+    if (item) appendText(parent, "span", `Label: ${string(item.name)}`, "tag");
   }
 }
 

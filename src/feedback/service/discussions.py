@@ -23,7 +23,9 @@ class DiscussionGateway(Protocol):
 
     async def create(self, site: SiteConfig, *, title: str, body: str) -> GitHubDiscussion: ...
 
-    async def content(self, site: SiteConfig, discussion_id: str, comments: int = 100) -> dict[str, Any]: ...
+    async def content(
+        self, site: SiteConfig, discussion_id: str, comments: int = 100
+    ) -> dict[str, Any]: ...
 
     async def add_comment(
         self, token: str, discussion_id: str, body: str, reply_to_id: str | None
@@ -81,7 +83,9 @@ class DiscussionService:
             )
             return result
 
-    async def content(self, site: SiteConfig, database: SiteDatabase, resource_id: str) -> dict[str, Any]:
+    async def content(
+        self, site: SiteConfig, database: SiteDatabase, resource_id: str
+    ) -> dict[str, Any]:
         discussion = database.discussion(resource_id)
         if discussion is None:
             raise DiscussionError("discussion does not exist")

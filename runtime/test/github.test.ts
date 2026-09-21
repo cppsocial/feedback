@@ -73,14 +73,22 @@ void test("reaction mutations return the updated count and viewer selection", as
 });
 
 void test("poll mutations return the updated count and viewer selection", async () => {
-  const fetch = (): Promise<Response> => Promise.resolve(Response.json({ data: {
-    remove: { pollOption: { totalVoteCount: 8, viewerHasVoted: false } },
-  } }));
+  let request: { query: string; variables: Record<string, unknown> } | undefined;
+  const fetch = (_input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
+    if (typeof init?.body !== "string") throw new TypeError("Expected a string body");
+    request = JSON.parse(init.body) as typeof request;
+    return Promise.resolve(Response.json({ data: {
+      addDiscussionPollVote: { pollOption: { totalVoteCount: 9, viewerHasVoted: true } },
+    } }));
+  };
 
-  assert.deepEqual(await setPollVote(token, "DPO_1", false, fetch), {
-    count: 8,
-    viewerHasVoted: false,
+  assert.deepEqual(await setPollVote(token, "DPO_1", true, fetch), {
+    count: 9,
+    viewerHasVoted: true,
   });
+  assert.match(request?.query ?? "", /addDiscussionPollVote/);
+  assert.doesNotMatch(request?.query ?? "", /removeDiscussionPollVote/);
+  assert.deepEqual(request?.variables, { id: "DPO_1" });
 });
 
 void test("viewer subject state batches reactions, votes, and chunks at 100 IDs", async () => {

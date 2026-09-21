@@ -22,7 +22,13 @@ const keys = [...new Set(
     .split(",").map((value) => value.trim()).filter(Boolean),
 )];
 const githubMode = parameters.get("github") ?? "link";
-const showFirstPost = parameters.get("firstPost") !== "hidden";
+const visibility = {
+  title: parameters.get("title") !== "hidden",
+  root: parameters.get("firstPost") !== "hidden",
+  metadata: true,
+  poll: true,
+  discussionActions: true,
+};
 const reactionTypes: readonly Reaction[] = [
   "THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES",
 ];
@@ -30,6 +36,7 @@ const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
+let selectedKey = keys[0] ?? "";
 let cardViewerStates = new Map<string, ViewerSubjectState>();
 const counterOverrides = new Map<string, {
   upvotes?: number;
@@ -59,6 +66,18 @@ for (const key of keys) {
   option.textContent = key;
   commentKey.append(option);
 }
+commentKey.value = selectedKey;
+commentKey.addEventListener("change", () => {
+  selectedKey = commentKey.value;
+  replyTo = undefined;
+  required("clear-reply").hidden = true;
+  void render();
+});
+configureVisibilityButton("toggle-title", "title", "title");
+configureVisibilityButton("toggle-root", "root", "root post");
+configureVisibilityButton("toggle-metadata", "metadata", "metadata");
+configureVisibilityButton("toggle-poll", "poll", "poll");
+configureVisibilityButton("toggle-discussion-actions", "discussionActions", "post actions");
 updateAuthenticationUi();
 void render();
 
@@ -105,7 +124,7 @@ async function render(): Promise<void> {
     }
     states = applyCounterOverrides(states);
     renderRankingCards(states);
-    const existingKeys = keys.filter((key) => states.get(key)?.id);
+    const existingKeys = states.get(selectedKey)?.id ? [selectedKey] : [];
     const root = required("thread");
     const rendered = document.createDocumentFragment();
     let contents = new Map<string, { discussion: Record<string, unknown> }>();
@@ -120,7 +139,7 @@ async function render(): Promise<void> {
     } catch (error) {
       contentError = error;
     }
-    for (const key of keys) {
+    for (const key of [selectedKey]) {
       const article = document.createElement("article");
       article.className = "discussion";
       rendered.append(article);
@@ -161,11 +180,13 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
       `▲ ${String(state?.upvotes ?? 0)}`,
       () => upvote(key),
     );
+    button.className = "card-upvote upvote-control";
     button.setAttribute("aria-pressed", String(state?.viewerHasUpvoted === true));
     card.append(button);
     const reactions = document.createElement("div");
     reactions.className = "reactions";
     for (const [name, count] of Object.entries(state?.reactions ?? {})) {
+      if (count === 0) continue;
       const selected = state?.id
         ? cardViewerStates.get(state.id)?.reactions.has(name as Reaction) === true
         : false;
@@ -212,28 +233,37 @@ function renderDiscussion(
   content: Record<string, unknown>,
   state: ReactionState | undefined,
 ): void {
-  appendText(root, "h2", string(content.title) || key);
+  const header = document.createElement("header");
+  header.className = "discussion-header";
+  if (visibility.title) appendText(header, "h2", string(content.title) || key);
   if (isViewer(content.author)) root.classList.add("own-post");
-  if (showFirstPost) renderAuthor(root, content.author, content.createdAt);
-  const category = record(content.category);
-  if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
-  renderLabels(root, content.labels);
-  if (showFirstPost) renderMarkdown(root, string(content.bodyHTML), string(content.body));
-  renderPoll(root, record(content.poll));
-  const reactions = document.createElement("div");
-  reactions.className = "reactions";
-  for (const name of reactionTypes) {
-    reactions.append(subjectReactionButton(
-      string(content.id), name, state?.reactions?.[name] ?? 0, viewerReacted(content, name),
-    ));
+  if (visibility.metadata) {
+    const metadata = document.createElement("div");
+    metadata.className = "discussion-metadata";
+    const category = record(content.category);
+    if (category) appendText(metadata, "span", string(category.name), "tag category-tag");
+    renderLabels(metadata, content.labels);
+    header.append(metadata);
   }
-  root.append(reactions);
-  const controls = document.createElement("div");
-  controls.className = "controls";
-  controls.append(subjectUpvoteButton(
-    string(content.id), state?.upvotes ?? 0, state?.viewerHasUpvoted === true,
-  ));
-  root.append(controls);
+  if (header.childElementCount > 0) root.append(header);
+  if (visibility.root) {
+    renderAuthor(root, content.author, content.createdAt, isAdmin(content));
+    renderMarkdown(root, string(content.bodyHTML), string(content.body));
+  }
+  if (visibility.poll) renderPoll(root, record(content.poll));
+  if (visibility.discussionActions) {
+    const controls = document.createElement("div");
+    controls.className = "post-actions";
+    controls.append(subjectReactionControls(string(content.id), reactionTypes.map((name) => ({
+      reaction: name,
+      count: state?.reactions?.[name] ?? 0,
+      selected: viewerReacted(content, name),
+    }))));
+    controls.append(subjectUpvoteButton(
+      string(content.id), state?.upvotes ?? 0, state?.viewerHasUpvoted === true,
+    ));
+    root.append(controls);
+  }
   const url = string(content.url);
   if (url && githubMode !== "hidden") {
     const link = document.createElement("a");
@@ -330,7 +360,7 @@ function renderLabels(parent: HTMLElement, value: unknown): void {
   if (!Array.isArray(nodes)) return;
   for (const label of nodes) {
     const item = record(label);
-    if (item) appendText(parent, "span", `Label: ${string(item.name)}`, "tag");
+    if (item) appendText(parent, "span", string(item.name), "tag label-tag");
   }
 }
 
@@ -352,14 +382,16 @@ function renderPoll(parent: HTMLElement, poll: Record<string, unknown> | null): 
       button.setAttribute("aria-pressed", String(selected));
     };
     button.addEventListener("click", () => {
+      if (selected) return;
       button.disabled = true;
       void authenticateAndRun(async (token) => {
-        const result = await setPollVote(token, string(value.id), !selected);
+        const result = await setPollVote(token, string(value.id), true);
         selected = result.viewerHasVoted;
         count = result.count;
         refresh();
       }).finally(() => { button.disabled = false; });
     });
+    button.disabled = selected;
     refresh();
     parent.append(button);
   }
@@ -372,16 +404,20 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     appendText(article, "p", "This comment was deleted.");
     return article;
   }
-  if (comment.isAnswer === true) article.classList.add("answer");
+  if (comment.isAnswer === true) {
+    article.classList.add("answer", "verified-answer");
+    appendText(article, "div", "✓ Verified answer", "answer-banner");
+  }
   if (isViewer(comment.author)) article.classList.add("own-post");
-  renderAuthor(article, comment.author, comment.createdAt);
+  const admin = isAdmin(comment);
+  if (admin) article.classList.add("admin-post");
+  renderAuthor(article, comment.author, comment.createdAt, admin);
   if (comment.isMinimized === true) appendText(article, "p", "This comment was minimized.");
   else renderMarkdown(article, string(comment.bodyHTML), string(comment.body));
-  if (comment.isAnswer === true) appendText(article, "span", "✓ Accepted answer", "tag accepted");
-  const association = string(comment.authorAssociation);
-  if (["OWNER", "MEMBER", "COLLABORATOR"].includes(association)) {
-    appendText(article, "span", association.toLowerCase(), "tag");
-  }
+  const footer = document.createElement("footer");
+  footer.className = "comment-footer";
+  const footerActions = document.createElement("div");
+  footerActions.className = "comment-footer-actions";
   if (depth === 0 && typeof comment.id === "string") {
     const reply = document.createElement("button");
     reply.type = "button";
@@ -392,7 +428,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
       required("clear-reply").hidden = false;
       required("comment-body").focus();
     });
-    article.append(reply);
+    footerActions.append(reply);
   }
   const groups = comment.reactionGroups;
   const groupMap = new Map<Reaction, Record<string, unknown>>();
@@ -403,24 +439,22 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     }
   }
   if (typeof comment.id === "string") {
-    const controls = document.createElement("div");
-    controls.className = "comment-controls";
-    for (const reaction of reactionTypes) {
+    footerActions.prepend(subjectReactionControls(comment.id, reactionTypes.map((reaction) => {
       const value = groupMap.get(reaction);
-      controls.append(subjectReactionButton(
-        comment.id,
+      return {
         reaction,
-        integer(record(value?.reactors)?.totalCount),
-        value?.viewerHasReacted === true,
-      ));
-    }
-    article.append(controls);
+        count: integer(record(value?.reactors)?.totalCount),
+        selected: value?.viewerHasReacted === true,
+      };
+    })));
   }
+  footer.append(footerActions);
   if (typeof comment.upvoteCount === "number") {
-    article.append(subjectUpvoteButton(
+    footer.append(subjectUpvoteButton(
       string(comment.id), comment.upvoteCount, comment.viewerHasUpvoted === true,
     ));
   }
+  article.append(footer);
   const replies = record(comment.replies)?.nodes;
   if (Array.isArray(replies)) {
     for (const reply of replies) {
@@ -431,33 +465,66 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   return article;
 }
 
-function subjectReactionButton(
+function subjectReactionControls(
   subjectId: string,
-  reaction: Reaction,
-  initialCount: number,
-  initialSelected: boolean,
-): HTMLButtonElement {
-  let selected = initialSelected;
-  let count = initialCount;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "reaction-control";
-  const refresh = (): void => {
-    button.textContent = `${reactionEmoji(reaction)} ${String(count)}`;
-    button.title = reactionLabel(reaction);
-    button.setAttribute("aria-pressed", String(selected));
+  initial: readonly { reaction: Reaction; count: number; selected: boolean }[],
+): HTMLElement {
+  const states = new Map(initial.map((value) => [value.reaction, { ...value }]));
+  const root = document.createElement("div");
+  root.className = "reaction-controls";
+  const renderControls = (): void => {
+    root.replaceChildren();
+    for (const reaction of reactionTypes) {
+      const state = states.get(reaction) ?? { reaction, count: 0, selected: false };
+      if (state.count > 0) root.append(reactionButton(state, false));
+    }
+    const picker = document.createElement("details");
+    picker.className = "reaction-picker";
+    const summary = document.createElement("summary");
+    summary.textContent = "😀 +";
+    summary.title = "Add reaction";
+    picker.append(summary);
+    const choices = document.createElement("div");
+    choices.className = "reaction-picker-menu";
+    for (const reaction of reactionTypes) {
+      const state = states.get(reaction) ?? { reaction, count: 0, selected: false };
+      choices.append(reactionButton(state, true));
+    }
+    picker.append(choices);
+    root.append(picker);
   };
-  button.addEventListener("click", () => {
-    button.disabled = true;
-    void authenticateAndRun(async (token) => {
-      const result = await setReaction(token, subjectId, reaction, !selected);
-      selected = result.viewerHasReacted;
-      count = result.count;
-      refresh();
-    }).finally(() => { button.disabled = false; });
-  });
-  refresh();
-  return button;
+  const reactionButton = (
+    state: { reaction: Reaction; count: number; selected: boolean },
+    picker: boolean,
+  ): HTMLButtonElement => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = picker ? "reaction-choice" : "reaction-control";
+    button.textContent = picker
+      ? reactionEmoji(state.reaction)
+      : `${reactionEmoji(state.reaction)} ${String(state.count)}`;
+    button.title = reactionLabel(state.reaction);
+    button.setAttribute("aria-pressed", String(state.selected));
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      button.classList.add("pending");
+      void authenticateAndRun(async (token) => {
+        const result = await setReaction(token, subjectId, state.reaction, !state.selected);
+        states.set(state.reaction, {
+          reaction: state.reaction,
+          count: result.count,
+          selected: result.viewerHasReacted,
+        });
+        renderControls();
+      }).finally(() => {
+        button.disabled = false;
+        button.classList.remove("pending");
+      });
+    });
+    return button;
+  };
+  renderControls();
+  return root;
 }
 
 function subjectUpvoteButton(
@@ -572,7 +639,12 @@ function viewerReacted(subject: Record<string, unknown>, reaction: string): bool
   });
 }
 
-function renderAuthor(parent: Element, authorValue: unknown, createdAt: unknown): void {
+function renderAuthor(
+  parent: Element,
+  authorValue: unknown,
+  createdAt: unknown,
+  admin = false,
+): void {
   const author = record(authorValue);
   if (!author) return;
   const header = document.createElement("header");
@@ -588,9 +660,32 @@ function renderAuthor(parent: Element, authorValue: unknown, createdAt: unknown)
     header.append(avatar);
   }
   appendText(header, "strong", string(author.login) || "ghost");
+  if (admin) appendText(header, "span", "Admin", "admin-flair");
   const timestamp = string(createdAt);
   if (timestamp) appendText(header, "time", new Date(timestamp).toLocaleString());
   parent.append(header);
+}
+
+function isAdmin(value: Record<string, unknown>): boolean {
+  return ["OWNER", "MEMBER", "COLLABORATOR"].includes(string(value.authorAssociation));
+}
+
+function configureVisibilityButton(
+  id: string,
+  property: keyof typeof visibility,
+  label: string,
+): void {
+  const button = required(id) as HTMLButtonElement;
+  const refresh = (): void => {
+    button.textContent = `${visibility[property] ? "Hide" : "Show"} ${label}`;
+    button.setAttribute("aria-pressed", String(!visibility[property]));
+  };
+  button.addEventListener("click", () => {
+    visibility[property] = !visibility[property];
+    refresh();
+    void render();
+  });
+  refresh();
 }
 
 function renderMarkdown(parent: Element, html: string, fallback: string): void {

@@ -18,9 +18,16 @@
       <p>These cards use one anonymous batched counter request. The final card intentionally has no discussion.</p>
       <section id="cards" class="cards"></section>
       <h2>Full discussions</h2>
+      <div class="thread-toolbar">
+        <label>Discussion <select id="comment-key"></select></label>
+        <button id="toggle-title" type="button" aria-pressed="false">Hide title</button>
+        <button id="toggle-root" type="button" aria-pressed="false">Hide root post</button>
+        <button id="toggle-metadata" type="button" aria-pressed="false">Hide metadata</button>
+        <button id="toggle-poll" type="button" aria-pressed="false">Hide poll</button>
+        <button id="toggle-discussion-actions" type="button" aria-pressed="false">Hide post actions</button>
+      </div>
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">
-        <label>Thread <select id="comment-key"></select></label>
         <div class="comment-box">
           <div class="comment-box-header">Write</div>
           <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Leave a comment"></textarea>

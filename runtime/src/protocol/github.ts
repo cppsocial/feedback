@@ -233,11 +233,11 @@ export async function setPollVote(
   fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
   signal?: AbortSignal,
 ): Promise<PollVoteResult> {
-  const operation = active ? "add" : "remove";
+  if (!active) throw new TypeError("GitHub poll votes cannot be removed");
   const response = await githubGraphql(
-    fetch, token, pollVoteMutation, { id: optionId, remove: !active, add: active }, signal,
+    fetch, token, pollVoteMutation, { id: optionId }, signal,
   );
-  const mutation = response.data?.[operation];
+  const mutation = response.data?.addDiscussionPollVote;
   const option = mutation && typeof mutation === "object"
     ? (mutation as { pollOption?: unknown }).pollOption : undefined;
   if (!option || typeof option !== "object") throw new TypeError("Invalid GitHub response");

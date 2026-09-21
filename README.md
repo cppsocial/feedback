@@ -28,7 +28,15 @@ The GitHub App must be public (installable by any account), have Discussions
 read/write permission, and register the exact callback URL
 `https://feedback.cpp.social/v1/oauth/callback.html`. A private GitHub App shows
 GitHub's 404 page to users who do not own it, before this service receives a
-callback.
+callback. After adding or changing the Discussions permission, the repository
+owner must approve the installation's requested permission update. Existing
+browser sessions should then log out and sign in again so their user token is
+issued with the current installation permissions. A `Resource not accessible by
+integration` mutation error is not, by itself, proof that this permission or
+approval is missing. In particular, GitHub may reject `addUpvote` for a GitHub
+App user token even when comments and reactions work. This deployment currently
+uses GitHub App user tokens; native upvote writes remain unverified and must not
+be represented as working until tested with this token type.
 
 Production SQLite files are persisted in the checkout's `db/` directory. The
 deployment bind-mounts `/srv/feedback/db` to `/data` in the container, so the
@@ -93,7 +101,9 @@ comma-separated resource keys with `keys`:
 
 Add `firstPost=hidden` when the host page already represents the discussion's
 opening post. This frontend-only option keeps post reactions, native upvotes,
-poll controls, and comments visible.
+poll controls, and comments visible. `title=hidden` also starts with the
+discussion title hidden. The example toolbar can toggle the title, root post,
+metadata, poll, and post actions without another request configuration.
 
 ## API and intent configuration
 

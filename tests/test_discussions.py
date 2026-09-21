@@ -69,11 +69,11 @@ class FakeContent:
         raise AssertionError("not used")
 
     async def content(
-        self, site: SiteConfig, discussion_id: str, comments: int = 100
+        self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
     ) -> dict[str, Any]:
         self.calls += 1
         await asyncio.sleep(0)
-        return {"node": {"id": discussion_id, "comments": {"nodes": []}}}
+        return {"nodes": [{"id": value, "comments": {"nodes": []}} for value in discussion_ids]}
 
     async def add_comment(
         self, token: str, discussion_id: str, body: str, reply_to_id: str | None
@@ -146,29 +146,31 @@ async def test_deleted_comment_content_is_never_returned(config: Config, tmp_pat
 
     class DeletedContent(FakeContent):
         async def content(
-            self, site: SiteConfig, discussion_id: str, comments: int = 100
+            self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
         ) -> dict[str, Any]:
             return {
-                "node": {
-                    "comments": {
-                        "nodes": [
-                            {
-                                "id": "DC_deleted",
-                                "deletedAt": "2026-01-01T00:00:00Z",
-                                "body": "must not escape",
-                                "url": "https://github.test/leak",
-                                "author": {"login": "former-author"},
-                                "replies": {"nodes": []},
-                            }
-                        ]
+                "nodes": [
+                    {
+                        "comments": {
+                            "nodes": [
+                                {
+                                    "id": "DC_deleted",
+                                    "deletedAt": "2026-01-01T00:00:00Z",
+                                    "body": "must not escape",
+                                    "url": "https://github.test/leak",
+                                    "author": {"login": "former-author"},
+                                    "replies": {"nodes": []},
+                                }
+                            ]
+                        }
                     }
-                }
+                ]
             }
 
     result = await DiscussionService(DeletedContent()).content(
         config.sites["cpp-social"], database, "feedback/example"
     )
-    deleted = result["node"]["comments"]["nodes"][0]
+    deleted = result["nodes"][0]["comments"]["nodes"][0]
     assert deleted == {
         "id": "DC_deleted",
         "deletedAt": "2026-01-01T00:00:00Z",

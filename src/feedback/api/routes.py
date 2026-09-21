@@ -205,16 +205,18 @@ async def discussion_content(request: Request) -> Response:
     require_feature(site, "discussion")
     if container.discussions is None:
         raise ApiError("service_unavailable", "Discussion content is unavailable.", 503)
-    keys = resource_keys(request.query_params, 1)
+    # Thread payloads are much larger than counters; keep one request useful for
+    # a page without allowing a client to multiply a 100-comment query 100-fold.
+    keys = resource_keys(request.query_params, min(site.max_batch_size, 10))
     try:
-        content = await container.discussions.content(site, container.databases[site.id], keys[0])
+        content = await container.discussions.contents(site, container.databases[site.id], keys)
     except DiscussionError as exc:
         raise ApiError("discussion_not_found", str(exc), 404) from exc
     except GitHubError as exc:
         raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
     return cors(
         JSONResponse(
-            {"v": 1, "site": site.id, "content": content.get("node")},
+            {"v": 1, "site": site.id, "items": content},
             headers={"Cache-Control": "no-store"},
         ),
         origin,

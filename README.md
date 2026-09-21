@@ -24,6 +24,12 @@ The secret files must be readable by UID 10001 in the container. Root-owned mode
 `0444` is suitable because Docker bind-mounts them read-only. The application
 configuration itself is committed as `config/sites.toml`.
 
+The GitHub App must be public (installable by any account), have Discussions
+read/write permission, and register the exact callback URL
+`https://feedback.cpp.social/v1/oauth/callback.html`. A private GitHub App shows
+GitHub's 404 page to users who do not own it, before this service receives a
+callback.
+
 Production SQLite files are persisted in the checkout's `db/` directory. The
 deployment bind-mounts `/srv/feedback/db` to `/data` in the container, so the
 site databases are `/srv/feedback/db/<site-id>.sqlite3`. They are ignored by

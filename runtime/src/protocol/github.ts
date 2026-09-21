@@ -2,6 +2,7 @@ import type { AccessToken } from "../api/client.js";
 import addCommentMutation from "./queries/add_comment.graphql";
 import upvoteMutation from "./queries/upvote.graphql";
 import viewerUpvotesQuery from "./queries/viewer_upvotes.graphql";
+import viewerSubjectsQuery from "./queries/viewer_subjects.graphql";
 import reactionMutation from "./queries/reaction.graphql";
 import pollVoteMutation from "./queries/poll_vote.graphql";
 import answerMutation from "./queries/answer.graphql";
@@ -13,6 +14,12 @@ export type Reaction = "THUMBS_UP" | "THUMBS_DOWN" | "LAUGH" | "HOORAY" | "CONFU
 export interface UpvoteResult {
   count: number;
   viewerHasUpvoted: boolean;
+}
+
+export interface ViewerSubjectState {
+  viewerHasUpvoted?: boolean;
+  viewerHasVoted?: boolean;
+  reactions: ReadonlySet<Reaction>;
 }
 
 export class GitHubRequestError extends Error {
@@ -93,6 +100,49 @@ export async function viewerUpvotes(
     result.set(candidate.id, candidate.viewerHasUpvoted);
   }
   return result;
+}
+
+export async function viewerSubjectStates(
+  token: AccessToken,
+  subjectIds: readonly string[],
+  fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
+  signal?: AbortSignal,
+): Promise<ReadonlyMap<string, ViewerSubjectState>> {
+  const result = new Map<string, ViewerSubjectState>();
+  for (let start = 0; start < subjectIds.length; start += 100) {
+    const ids = subjectIds.slice(start, start + 100);
+    const body = await githubGraphql(fetch, token, viewerSubjectsQuery, { ids }, signal);
+    const nodes = body.data?.nodes;
+    if (!Array.isArray(nodes)) throw new TypeError("Invalid GitHub response");
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      const value = node as Record<string, unknown>;
+      if (typeof value.id !== "string") throw new TypeError("Invalid GitHub response");
+      const reactions = new Set<Reaction>();
+      if (Array.isArray(value.reactionGroups)) {
+        for (const group of value.reactionGroups) {
+          if (!group || typeof group !== "object") continue;
+          const candidate = group as { content?: unknown; viewerHasReacted?: unknown };
+          if (candidate.viewerHasReacted === true && isReaction(candidate.content)) {
+            reactions.add(candidate.content);
+          }
+        }
+      }
+      result.set(value.id, {
+        ...(typeof value.viewerHasUpvoted === "boolean"
+          ? { viewerHasUpvoted: value.viewerHasUpvoted } : {}),
+        ...(typeof value.viewerHasVoted === "boolean"
+          ? { viewerHasVoted: value.viewerHasVoted } : {}),
+        reactions,
+      });
+    }
+  }
+  return result;
+}
+
+function isReaction(value: unknown): value is Reaction {
+  return ["THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+    .includes(value as Reaction);
 }
 
 export async function addComment(

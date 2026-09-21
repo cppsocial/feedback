@@ -45,6 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY src ./src
 RUN pip install --no-deps .
+RUN pip uninstall --yes pip setuptools msgpack
 
 FROM ${PYTHON_IMAGE} AS production
 
@@ -55,9 +56,11 @@ ENV VIRTUAL_ENV=/opt/venv \
     PYTHONHASHSEED=random
 
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 10001 feedback \
+    && python -m pip uninstall --yes pip setuptools msgpack
+RUN groupadd --gid 10001 feedback \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent \
        --shell /usr/sbin/nologin feedback \
     && mkdir --parents /app /data \

@@ -207,9 +207,20 @@ export class FeedbackClient {
   }
 
   async discussionContent(key: string, signal?: AbortSignal): Promise<DiscussionContent> {
-    validateResourceId(key);
+    const contents = await this.discussionContents([key], signal);
+    const content = contents.get(key);
+    if (content === undefined) throw new TypeError("Invalid discussion content response");
+    return content;
+  }
+
+  async discussionContents(
+    keys: Iterable<string>,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyMap<string, DiscussionContent>> {
+    const normalized = [...new Set(Array.from(keys, validateResourceId))].sort();
+    if (normalized.length === 0) throw new TypeError("At least one resource key is required");
     const url = new URL(`/v1/sites/${encodeURIComponent(this.#site)}/discussion`, this.#apiOrigin);
-    url.searchParams.set("keys", key);
+    url.searchParams.set("keys", normalized.join(","));
     const init: RequestInit = { headers: { Accept: "application/json" } };
     if (signal) init.signal = signal;
     const response = await this.#fetch(url, init);
@@ -218,9 +229,15 @@ export class FeedbackClient {
     if (!payload || typeof payload !== "object" || (payload as { v?: unknown }).v !== 1) {
       throw new TypeError("Invalid discussion content response");
     }
-    const content = (payload as { content?: unknown }).content;
-    if (!content || typeof content !== "object") throw new TypeError("Invalid discussion content response");
-    return { discussion: content as Record<string, unknown>, comments: [] };
+    const items = (payload as { items?: unknown }).items;
+    if (!items || typeof items !== "object") throw new TypeError("Invalid discussion content response");
+    const result = new Map<string, DiscussionContent>();
+    for (const key of normalized) {
+      const content = (items as Record<string, unknown>)[key];
+      if (!content || typeof content !== "object") throw new TypeError("Invalid discussion content response");
+      result.set(key, { discussion: content as Record<string, unknown>, comments: [] });
+    }
+    return result;
   }
 
   async addComment(

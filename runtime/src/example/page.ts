@@ -3,6 +3,8 @@ import type { ReactionState } from "../api/client.js";
 import { trustedOrigin } from "../auth/origin.js";
 import { Authentication } from "../auth/controller.js";
 import { createAuthenticationStatus } from "../auth/status.js";
+import { viewerSubjectStates } from "../protocol/github.js";
+import type { ViewerSubjectState } from "../protocol/github.js";
 
 const parameters = new URLSearchParams(location.search);
 const site = parameters.get("site") ?? "feedback-cpp-social";
@@ -11,7 +13,7 @@ const apiOrigin = apiParameter === null
   ? "https://feedback-api.cpp.social"
   : trustedOrigin(apiParameter, "example API origin");
 const keys = [...new Set(
-  (parameters.get("keys") ?? parameters.get("key") ?? "feedback/example,feedback/example-two")
+  (parameters.get("keys") ?? parameters.get("key") ?? "feedback/example,feedback/documentation,poll/test,q-and-a/foo,q-and-a/test,feedback/not-created")
     .split(",").map((value) => value.trim()).filter(Boolean),
 )];
 const githubMode = parameters.get("github") ?? "link";
@@ -25,6 +27,7 @@ const authenticationStatus = createAuthenticationStatus({
   authentication,
   explanation: "Sign in is required to add comments or replies.",
   onError: (error) => { status.textContent = error instanceof Error ? error.message : "Authentication failed."; },
+  onChange: () => { void render(); },
 });
 required("comment-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -65,16 +68,27 @@ async function submitComment(): Promise<void> {
 
 async function render(): Promise<void> {
   try {
-    const states = await client.reactions(keys);
+    let states = await client.reactions(keys);
+    const token = authentication.token();
+    if (token !== null) states = await client.syncViewerUpvotes(keys, token);
+    const existingKeys = keys.filter((key) => states.get(key)?.id);
+    const contents = await client.discussionContents(existingKeys);
     const root = required("thread");
     root.replaceChildren();
     await Promise.all(keys.map(async (key) => {
       const article = document.createElement("article");
       article.className = "discussion";
       root.append(article);
+      const state = states.get(key);
+      if (!state?.id) {
+        renderMissingDiscussion(article, key, state);
+        return;
+      }
       try {
-        const payload = await client.discussionContent(key);
-        renderDiscussion(article, key, payload.discussion, states.get(key));
+        const payload = contents.get(key);
+        if (!payload) throw new Error("Missing discussion content");
+        await addViewerState(payload.discussion);
+        renderDiscussion(article, key, payload.discussion, state);
       } catch (error) {
         appendText(article, "h2", key);
         appendText(article, "p", error instanceof FeedbackError ? error.code : "Unable to load thread.");
@@ -92,7 +106,8 @@ function renderDiscussion(
   content: Record<string, unknown>,
   state: ReactionState | undefined,
 ): void {
-    appendText(root, "h2", string(content.title) || key);
+  appendText(root, "h2", string(content.title) || key);
+  if (isViewer(content.author)) root.classList.add("own-post");
     const category = record(content.category);
     if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
     renderLabels(root, content.labels);
@@ -109,7 +124,8 @@ function renderDiscussion(
     const reactions = document.createElement("div");
     reactions.className = "reactions";
     for (const [name, count] of Object.entries(state?.reactions ?? {})) {
-      if (count > 0) appendText(reactions, "span", `${name}: ${String(count)}`, "tag");
+      const tag = appendText(reactions, "span", `${name}: ${String(count)}`, "tag");
+      if (viewerReacted(content, name)) tag.classList.add("selected");
     }
     root.append(reactions);
     const controls = document.createElement("div");
@@ -141,9 +157,17 @@ function renderDiscussion(
 async function upvote(key: string): Promise<void> {
   try {
     const token = authentication.token() ?? await authentication.authenticate();
+    const state = (await client.reactions([key])).get(key);
+    if (!state?.id) {
+      const resourceUrl = new URL(location.href);
+      resourceUrl.search = "";
+      resourceUrl.hash = "";
+      await client.ensure({ key, title: key, url: resourceUrl.href }, token.creationGrant);
+    }
     await client.toggleUpvote(key, token);
     authenticationStatus.refresh();
     status.textContent = `Updated ${key}.`;
+    await render();
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Unable to upvote.";
   }
@@ -190,6 +214,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     return article;
   }
   if (comment.isAnswer === true) article.classList.add("answer");
+  if (isViewer(comment.author)) article.classList.add("own-post");
   appendText(article, "p", comment.isMinimized === true ? "This comment was minimized." : string(comment.body));
   if (comment.isAnswer === true) appendText(article, "span", "Accepted answer", "tag");
   const association = string(comment.authorAssociation);
@@ -210,11 +235,21 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   }
   const groups = comment.reactionGroups;
   if (Array.isArray(groups)) {
-    const summary = groups.map((group) => {
+    for (const group of groups) {
       const value = record(group);
-      return value ? `${string(value.content)}: ${String(integer(record(value.users)?.totalCount))}` : "";
-    }).filter(Boolean).join("  ");
-    if (summary) appendText(article, "span", summary, "tag");
+      if (!value) continue;
+      const tag = appendText(
+        article,
+        "span",
+        `${string(value.content)}: ${String(integer(record(value.users)?.totalCount))}`,
+        "tag",
+      );
+      if (value.viewerHasReacted === true) tag.classList.add("selected");
+    }
+  }
+  if (typeof comment.upvoteCount === "number") {
+    const upvotes = appendText(article, "span", `Upvotes: ${String(comment.upvoteCount)}`, "tag");
+    if (comment.viewerHasUpvoted === true) upvotes.classList.add("selected");
   }
   const replies = record(comment.replies)?.nodes;
   if (Array.isArray(replies)) {
@@ -226,11 +261,80 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   return article;
 }
 
-function appendText(parent: Element, tag: string, text: string, className?: string): void {
+function renderMissingDiscussion(
+  root: HTMLElement,
+  key: string,
+  state: ReactionState | undefined,
+): void {
+  appendText(root, "h2", key);
+  appendText(root, "p", "No GitHub discussion exists yet. Anonymous counters still resolve to zero.");
+  appendText(root, "span", `Upvotes: ${String(state?.upvotes ?? 0)}`, "tag");
+  const reactions = document.createElement("div");
+  reactions.className = "reactions";
+  for (const [name, count] of Object.entries(state?.reactions ?? {})) {
+    appendText(reactions, "span", `${name}: ${String(count)}`, "tag");
+  }
+  root.append(reactions);
+  const button = actionButton("Sign in and create with first upvote", () => upvote(key));
+  button.setAttribute("aria-pressed", "false");
+  root.append(button);
+}
+
+function isViewer(author: unknown): boolean {
+  const viewerId = authentication.token()?.viewerId;
+  return viewerId !== undefined && string(record(author)?.id) === viewerId;
+}
+
+async function addViewerState(content: Record<string, unknown>): Promise<void> {
+  const token = authentication.token();
+  if (token === null) return;
+  const subjects = new Map<string, Record<string, unknown>>();
+  collectSubjects(content, subjects);
+  const states = await viewerSubjectStates(token, [...subjects.keys()]);
+  for (const [id, state] of states) overlayViewerState(subjects.get(id), state);
+}
+
+function collectSubjects(value: unknown, result: Map<string, Record<string, unknown>>): void {
+  if (Array.isArray(value)) {
+    for (const child of value) collectSubjects(child, result);
+    return;
+  }
+  const object = record(value);
+  if (!object) return;
+  if (typeof object.id === "string") result.set(object.id, object);
+  for (const child of Object.values(object)) collectSubjects(child, result);
+}
+
+function overlayViewerState(
+  subject: Record<string, unknown> | undefined,
+  state: ViewerSubjectState,
+): void {
+  if (!subject) return;
+  if (state.viewerHasUpvoted !== undefined) subject.viewerHasUpvoted = state.viewerHasUpvoted;
+  if (state.viewerHasVoted !== undefined) subject.viewerHasVoted = state.viewerHasVoted;
+  const groups = subject.reactionGroups;
+  if (!Array.isArray(groups)) return;
+  for (const group of groups) {
+    const value = record(group);
+    if (value) value.viewerHasReacted = state.reactions.has(string(value.content) as never);
+  }
+}
+
+function viewerReacted(subject: Record<string, unknown>, reaction: string): boolean {
+  const groups = subject.reactionGroups;
+  if (!Array.isArray(groups)) return false;
+  return groups.some((group) => {
+    const value = record(group);
+    return string(value?.content) === reaction && value?.viewerHasReacted === true;
+  });
+}
+
+function appendText(parent: Element, tag: string, text: string, className?: string): HTMLElement {
   const element = document.createElement(tag);
   element.textContent = text;
   if (className) element.className = className;
   parent.append(element);
+  return element;
 }
 
 function record(value: unknown): Record<string, unknown> | null {

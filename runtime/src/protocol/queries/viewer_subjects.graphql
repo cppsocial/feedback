@@ -1,0 +1,10 @@
+query FeedbackViewerSubjects($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    id
+    ... on Reactable {
+      reactionGroups { content viewerHasReacted }
+    }
+    ... on Votable { viewerHasUpvoted }
+    ... on DiscussionPollOption { viewerHasVoted }
+  }
+}

@@ -93,6 +93,22 @@ def create_app(
         }
         for database in databases.values():
             database.migrate()
+        for site_id, site in loaded.sites.items():
+            database = databases[site_id]
+            for discussion in site.known_discussions:
+                if database.discussion(discussion.key) is None:
+                    database.put_discussion(
+                        resource_id=discussion.key,
+                        category_key=discussion.category,
+                        lookup_term=discussion.title,
+                        node_id=discussion.node_id,
+                        number=discussion.number,
+                        title=discussion.title,
+                        url=(
+                            f"https://github.com/{site.repository}/discussions/{discussion.number}"
+                        ),
+                        fetched_at=0,
+                    )
         services = FeedbackRuntime(
             loaded,
             databases,

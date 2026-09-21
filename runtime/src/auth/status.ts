@@ -9,6 +9,7 @@ export interface AuthenticationStatusOptions {
   loginLabel?: string;
   logoutLabel?: string;
   onError?: (error: unknown) => void;
+  onChange?: (authenticated: boolean) => void;
 }
 
 export interface AuthenticationStatusController {
@@ -41,11 +42,15 @@ export function createAuthenticationStatus(
       if (options.authentication.token() !== null) {
         options.authentication.clear();
         refresh();
+        options.onChange?.(false);
         return;
       }
       action.disabled = true;
       void options.authentication.authenticate()
-        .then(refresh)
+        .then(() => {
+          refresh();
+          options.onChange?.(true);
+        })
         .catch((error: unknown) => {
           options.onError?.(error);
           refresh();

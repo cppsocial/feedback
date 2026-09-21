@@ -18,8 +18,26 @@ repository = "cppsocial/feedback"
 repository_id = "R_kgDOUc9png"
 installation_id = 162105624
 default_category = "general"
-intents = ["upvotes", "reactions", "discussion", "comments", "labels", "github_link"]
+intents = ["upvotes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "comment_upvotes", "labels", "github_link"]
+reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+known_discussions = [
+  { key = "feedback/example", id = "D_kwDOUc9pns4ApUHg", number = 1, category = "general", title = "feedback/example" },
+  { key = "feedback/documentation", id = "D_kwDOUc9pns4ApVT9", number = 2, category = "general", title = "feedback/documentation" },
+  { key = "feedback/navigation", id = "D_kwDOUc9pns4ApVT_", number = 3, category = "general", title = "feedback/navigation" },
+  { key = "feedback/design", id = "D_kwDOUc9pns4ApVWg", number = 4, category = "general", title = "feedback/design" },
+  { key = "poll/test", id = "D_kwDOUc9pns4ApX3L", number = 5, category = "poll", title = "test" },
+  { key = "q-and-a/foo", id = "D_kwDOUc9pns4ApX3M", number = 6, category = "q-and-a", title = "foo" },
+  { key = "q-and-a/test", id = "D_kwDOUc9pns4ApX3Q", number = 7, category = "q-and-a", title = "test" },
+]
 
 [sites.feedback-cpp-social.categories.general]
 name = "General"
 id = "DIC_kwDOUc9pns4DFwQt"
+
+[sites.feedback-cpp-social.categories.poll]
+name = "Poll"
+id = "DIC_kwDOUc9pns4DF7jd"
+
+[sites.feedback-cpp-social.categories.q-and-a]
+name = "Q&A"
+id = "DIC_kwDOUc9pns4DF7jc"

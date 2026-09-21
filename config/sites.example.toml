@@ -25,6 +25,11 @@ discussion_body = "Discussion for [{title}]({url})."
 # max_batch_size = 100
 intents = ["upvotes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "comment_upvotes", "labels", "github_link"]
 reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+# Optional: pre-register discussions whose stable numeric and node IDs are known
+# so anonymous reads work immediately after starting with an empty database.
+# known_discussions = [
+#   { key = "articles/example", id = "D_example", number = 1, category = "articles", title = "articles/example" },
+# ]
 
 [sites.example.categories.articles]
 name = "Articles"

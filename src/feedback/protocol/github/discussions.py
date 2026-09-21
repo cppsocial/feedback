@@ -89,13 +89,13 @@ class GitHubDiscussions:
         return discussion
 
     async def content(
-        self, site: SiteConfig, discussion_id: str, comments: int = 100
+        self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
     ) -> dict[str, Any]:
         return await self._client.graphql(
             site.installation_id,
             load("discussion"),
             {
-                "id": discussion_id,
+                "ids": discussion_ids,
                 "comments": comments,
                 "includeComments": "comments" in site.intents,
                 "includeLabels": "labels" in site.intents,

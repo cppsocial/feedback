@@ -36,6 +36,7 @@ main {
 }
 
 .discussion { border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; }
+.own-post { border-color: #356fc0; box-shadow: inset 4px 0 #356fc0; }
 .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 
 .thread h2 {
@@ -57,6 +58,7 @@ main {
 }
 
 .poll-option.selected,
+.tag.selected,
 .answer {
   border-color: #5b8c5a;
   background: #f1f8ef;

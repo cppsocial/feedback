@@ -32,7 +32,7 @@ class DiscussionGateway(Protocol):
 
 class DiscussionContentGateway(Protocol):
     async def content(
-        self, site: SiteConfig, discussion_id: str, comments: int = 100
+        self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
     ) -> dict[str, Any]: ...
 
 
@@ -43,7 +43,7 @@ class DiscussionService:
         self._github = github
         self._clock = clock
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
-        self._content_tasks: dict[tuple[str, str], asyncio.Task[dict[str, Any]]] = {}
+        self._content_tasks: dict[tuple[str, tuple[str, ...]], asyncio.Task[dict[str, Any]]] = {}
 
     async def ensure(
         self, site: SiteConfig, database: SiteDatabase, resource: Resource
@@ -101,17 +101,29 @@ class DiscussionService:
     async def content(
         self, site: SiteConfig, database: SiteDatabase, resource_id: str
     ) -> dict[str, Any]:
-        discussion = database.discussion(resource_id)
-        if discussion is None:
+        result = await self.contents(site, database, [resource_id])
+        return {"nodes": [result[resource_id]]}
+
+    async def contents(
+        self, site: SiteConfig, database: SiteDatabase, resource_ids: list[str]
+    ) -> dict[str, Any]:
+        discussions = [database.discussion(resource_id) for resource_id in resource_ids]
+        if any(discussion is None for discussion in discussions):
             raise DiscussionError("discussion does not exist")
-        key = (site.id, discussion.node_id)
+        resolved = [discussion for discussion in discussions if discussion is not None]
+        ids = tuple(discussion.node_id for discussion in resolved)
+        key = (site.id, ids)
         task = self._content_tasks.get(key)
         if task is None or task.done():
             gateway = cast(DiscussionContentGateway, self._github)
-            task = asyncio.create_task(gateway.content(site, discussion.node_id))
+            task = asyncio.create_task(gateway.content(site, list(ids)))
             self._content_tasks[key] = task
         try:
-            return _without_deleted_content(await asyncio.shield(task))
+            payload = _without_deleted_content(await asyncio.shield(task))
+            nodes = payload.get("nodes")
+            if not isinstance(nodes, list) or len(nodes) != len(resource_ids):
+                raise DiscussionError("discussion response is incomplete")
+            return dict(zip(resource_ids, nodes, strict=True))
         finally:
             if self._content_tasks.get(key) is task and task.done():
                 self._content_tasks.pop(key, None)

@@ -1,5 +1,5 @@
 query FeedbackDiscussion(
-  $id: ID!
+  $ids: [ID!]!
   $comments: Int!
   $includeComments: Boolean!
   $includeLabels: Boolean!
@@ -12,12 +12,14 @@ query FeedbackDiscussion(
   $includeCommentReactions: Boolean!
   $includeCommentUpvotes: Boolean!
 ) {
-  node(id: $id) {
+  nodes(ids: $ids) {
     ... on Discussion {
       id
       number
       title
       body
+      author @include(if: $includeAuthors) { id login avatarUrl }
+      authorAssociation @include(if: $includeAuthors)
       url @include(if: $includeLink)
       repository { id }
       category { id name }

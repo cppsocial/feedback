@@ -25,6 +25,11 @@ Every site declares `mode`, `intents`, one or more categories, and a default
 category. `discussion_body` is the template used only when creating a thread and
 supports `{key}`, `{title}`, and `{url}`.
 
+`known_discussions` can pre-register stable discussion node IDs and numbers. This
+avoids discovery requests and makes existing threads readable immediately with a
+fresh database. The frontend key may equal the current title; duplicate titles
+in different categories should use category-qualified keys.
+
 | Intent | Returned or enabled data |
 | --- | --- |
 | `upvotes` | Native Discussion `upvoteCount`; required for `/reactions` |
@@ -55,7 +60,7 @@ All JSON responses contain `v: 1`. Errors are
 | `POST` | `/v1/sites/{site}/oauth/authorize` | Start PKCE OAuth with `challenge` and `nonce` |
 | `POST` | `/v1/sites/{site}/oauth/exchange` | Exchange `code`, `state`, and `verifier`; return token plus an origin-bound creation grant |
 | `POST` | `/v1/sites/{site}/discussions/ensure` | Find or create a thread for a validated resource and grant |
-| `GET` | `/v1/sites/{site}/discussion?keys=a` | Fetch one authoritative configured thread |
+| `GET` | `/v1/sites/{site}/discussion?keys=a,b` | Fetch up to ten authoritative configured threads in one GitHub `nodes` query |
 
 A minimal counter response is:
 
@@ -95,8 +100,9 @@ The server can contact GitHub only in these places:
    global GitHub concurrency is capped, and maintenance sweeps are paced.
 4. Discussion discovery/creation. Work is serialized per site/resource; exact
    repository and category matches are required, and the resulting ID is stored.
-5. Discussion reads. A read is authoritative; simultaneous reads of the same
-   thread share only the in-flight request. The response is never retained.
+5. Discussion reads. Up to ten threads are grouped in one `nodes(ids:)` request.
+   Identical simultaneous batches share only the in-flight request. Responses
+   are never retained.
 
 Request sizes, key syntax, JSON fields, body sizes, origins, and batch size are
 bounded. Security headers are applied globally. Logs omit tokens, OAuth codes,

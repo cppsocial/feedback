@@ -10,6 +10,8 @@ from types import MappingProxyType
 from typing import Any
 from urllib.parse import urlsplit
 
+from feedback.service.resources import ResourceError, validate_resource_id
+
 
 class ConfigError(ValueError):
     pass
@@ -57,6 +59,7 @@ _SITE_KEYS = frozenset(
         "categories",
         "default_category",
         "discussion_body",
+        "known_discussions",
         "cache_fresh_seconds",
         "refresh_cooldown_seconds",
         "refresh_sweep_seconds",
@@ -87,6 +90,15 @@ class CategoryConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class KnownDiscussionConfig:
+    key: str
+    node_id: str
+    number: int
+    category: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class SiteConfig:
     id: str
     origins: tuple[str, ...]
@@ -97,6 +109,7 @@ class SiteConfig:
     installation_id: int
     categories: Mapping[str, CategoryConfig]
     default_category: str
+    known_discussions: tuple[KnownDiscussionConfig, ...] = ()
     discussion_body: str = "Feedback for [{title}]({url})"
     cache_fresh_seconds: int = 5
     refresh_cooldown_seconds: int = 5
@@ -213,6 +226,38 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             else "Feedback for [{title}]({url})"
         )
         _validate_template(discussion_body, f"sites.{site_id}.discussion_body")
+        known_discussions: list[KnownDiscussionConfig] = []
+        known_raw = value.get("known_discussions", [])
+        if not isinstance(known_raw, list):
+            raise ConfigError(f"sites.{site_id}.known_discussions must be an array")
+        for index, known in enumerate(known_raw):
+            name = f"sites.{site_id}.known_discussions[{index}]"
+            if not isinstance(known, dict):
+                raise ConfigError(f"{name} must be a table")
+            _reject_keys(known, {"key", "id", "number", "category", "title"}, name)
+            key = _string(known, "key")
+            try:
+                validate_resource_id(key)
+            except ResourceError as exc:
+                raise ConfigError(f"{name}.key is invalid") from exc
+            category = _string(known, "category")
+            if category not in categories:
+                raise ConfigError(f"{name}.category is not configured")
+            known_discussions.append(
+                KnownDiscussionConfig(
+                    key=key,
+                    node_id=_string(known, "id"),
+                    number=_bounded_int(known, "number", 1, 2**31 - 1),
+                    category=category,
+                    title=_string(known, "title"),
+                )
+            )
+        if len({item.key for item in known_discussions}) != len(known_discussions):
+            raise ConfigError(f"sites.{site_id}.known_discussions contains duplicate keys")
+        if len({item.node_id for item in known_discussions}) != len(known_discussions):
+            raise ConfigError(f"sites.{site_id}.known_discussions contains duplicate ids")
+        if len({item.number for item in known_discussions}) != len(known_discussions):
+            raise ConfigError(f"sites.{site_id}.known_discussions contains duplicate numbers")
         reaction_counters = (
             tuple(item.upper() for item in _string_list(value, "reaction_counters"))
             if "reaction_counters" in value
@@ -250,6 +295,7 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             installation_id=_bounded_int(value, "installation_id", 1, 2**63 - 1),
             categories=MappingProxyType(categories),
             default_category=default_category,
+            known_discussions=tuple(known_discussions),
             discussion_body=discussion_body,
             cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 5),
             refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 5),

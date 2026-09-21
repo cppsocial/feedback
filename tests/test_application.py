@@ -1,9 +1,35 @@
 import json
+from dataclasses import replace
 
 from starlette.testclient import TestClient
 
 from feedback.app import create_app
-from feedback.config import Config
+from feedback.config import Config, KnownDiscussionConfig
+
+
+def test_configured_known_discussion_is_available_with_a_fresh_database(config: Config) -> None:
+    site = config.sites["cpp-social"]
+    configured = replace(
+        config,
+        sites={
+            "cpp-social": replace(
+                site,
+                known_discussions=(
+                    KnownDiscussionConfig(
+                        "feedback/example", "D_example", 7, "resources", "feedback/example"
+                    ),
+                ),
+            )
+        },
+    )
+
+    with TestClient(create_app(configured)) as client:
+        response = client.get("/v1/sites/cpp-social/reactions?keys=feedback/example")
+
+    assert response.json()["items"]["feedback/example"] == {
+        "id": "D_example",
+        "upvotes": 0,
+    }
 
 
 def test_reactions_returns_sorted_deduplicated_cached_and_unknown_items(

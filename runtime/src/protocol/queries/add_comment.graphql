@@ -4,10 +4,6 @@ mutation FeedbackAddDiscussionComment($discussionId: ID!, $body: String!, $reply
     body: $body
     replyToId: $replyToId
   }) {
-    comment {
-      id
-      body
-      url
-    }
+    comment { id body url }
   }
 }

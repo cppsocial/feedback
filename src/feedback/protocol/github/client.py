@@ -98,20 +98,6 @@ class GitHubClient:
             raise _response_error(response, "github_malformed_response")
         return result
 
-    async def graphql_as_user(
-        self, token: str, query: str, variables: Mapping[str, object]
-    ) -> dict[str, Any]:
-        response = await self._graphql_request(token, query, variables)
-        data = _json_object(response)
-        if response.status_code >= 400:
-            raise _response_error(response, "github_http_error")
-        if data.get("errors"):
-            raise _response_error(response, "github_graphql_error")
-        result = data.get("data")
-        if not isinstance(result, dict):
-            raise _response_error(response, "github_malformed_response")
-        return result
-
     async def _request_installation_token(self, installation_id: int) -> InstallationToken:
         self._raise_if_rate_limited()
         response = await self._installation_token_request(installation_id)

@@ -12,9 +12,14 @@ http_request_timeout_seconds = 10
 
 [sites.feedback-cpp-social]
 origins = ["https://feedback.cpp.social"]
+mode = "discussion"
 mapping = "key"
 repository = "cppsocial/feedback"
 repository_id = "R_kgDOUc9png"
 installation_id = 162105624
-category = "General"
-category_id = "DIC_kwDOUc9pns4DFwQt"
+default_category = "general"
+intents = ["upvotes", "reactions", "discussion", "comments", "labels", "github_link"]
+
+[sites.feedback-cpp-social.categories.general]
+name = "General"
+id = "DIC_kwDOUc9pns4DFwQt"

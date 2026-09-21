@@ -15,6 +15,18 @@ export { PendingVoteStore } from "./auth/pending-vote.js";
 export type { PendingVote } from "./auth/pending-vote.js";
 export { lookupTerm, resourceFromDocument, validateResourceId } from "./feedback/resources.js";
 export type { DocumentResourceOptions, Mapping, Resource } from "./feedback/resources.js";
-export type { KeyValueStorage } from "./feedback/stars.js";
-export { GitHubRequestError, viewerVote, vote } from "./protocol/github.js";
-export type { Vote, ViewerVote, VoteResult } from "./protocol/github.js";
+export { createUpvoteControls } from "./feedback/upvotes.js";
+export type { UpvoteControls, UpvoteControlsOptions, UpvoteItem } from "./feedback/upvotes.js";
+export type { KeyValueStorage } from "./storage.js";
+export {
+  addComment,
+  deleteComment,
+  GitHubRequestError,
+  setAnswer,
+  setPollVote,
+  setReaction,
+  toggleUpvote,
+  updateComment,
+  viewerUpvotes,
+} from "./protocol/github.js";
+export type { Reaction, UpvoteResult } from "./protocol/github.js";

@@ -27,16 +27,15 @@ class GraphQLClient(Protocol):
         self, installation_id: int, query: str, variables: Mapping[str, object]
     ) -> dict[str, Any]: ...
 
-    async def graphql_as_user(
-        self, token: str, query: str, variables: Mapping[str, object]
-    ) -> dict[str, Any]: ...
-
 
 class GitHubDiscussions:
     def __init__(self, client: GraphQLClient) -> None:
         self._client = client
 
-    async def find(self, site: SiteConfig, lookup_term: str) -> GitHubDiscussion | None:
+    async def find(
+        self, site: SiteConfig, lookup_term: str, category_key: str
+    ) -> GitHubDiscussion | None:
+        category_config = site.categories[category_key]
         if site.mapping == "number":
             data = await self._client.graphql(
                 site.installation_id,
@@ -47,9 +46,9 @@ class GitHubDiscussions:
             if not isinstance(repository, dict):
                 return None
             candidate = repository.get("discussion")
-            return _parse(candidate, site) if candidate is not None else None
+            return _parse(candidate, site, category_key) if candidate is not None else None
         escaped = lookup_term.replace("\\", "\\\\").replace('"', '\\"')
-        query = f'repo:{site.repository} category:"{site.category}" in:title "{escaped}"'
+        query = f'repo:{site.repository} category:"{category_config.name}" in:title "{escaped}"'
         data = await self._client.graphql(
             site.installation_id, load("find_discussion"), {"query": query}
         )
@@ -59,20 +58,23 @@ class GitHubDiscussions:
         matches = [
             discussion
             for value in search["nodes"]
-            if (discussion := _parse(value, site)) is not None and discussion.title == lookup_term
+            if (discussion := _parse(value, site, category_key)) is not None
+            and discussion.title == lookup_term
         ]
         if len(matches) > 1:
             raise GitHubError("discussion_mapping_ambiguous")
         return matches[0] if matches else None
 
-    async def create(self, site: SiteConfig, *, title: str, body: str) -> GitHubDiscussion:
+    async def create(
+        self, site: SiteConfig, category_key: str, *, title: str, body: str
+    ) -> GitHubDiscussion:
         data = await self._client.graphql(
             site.installation_id,
             load("create_discussion"),
             {
                 "input": {
                     "repositoryId": site.repository_id,
-                    "categoryId": site.category_id,
+                    "categoryId": site.categories[category_key].node_id,
                     "title": title,
                     "body": body,
                 }
@@ -81,7 +83,7 @@ class GitHubDiscussions:
         result = data.get("createDiscussion")
         if not isinstance(result, dict):
             raise GitHubError("github_malformed_response")
-        discussion = _parse(result.get("discussion"), site)
+        discussion = _parse(result.get("discussion"), site, category_key)
         if discussion is None:
             raise GitHubError("github_malformed_response")
         return discussion
@@ -92,25 +94,24 @@ class GitHubDiscussions:
         return await self._client.graphql(
             site.installation_id,
             load("discussion"),
-            {"id": discussion_id, "comments": comments},
+            {
+                "id": discussion_id,
+                "comments": comments,
+                "includeComments": "comments" in site.intents,
+                "includeLabels": "labels" in site.intents,
+                "includeLink": "github_link" in site.intents,
+                "includeReactions": "reactions" in site.intents,
+                "includeAnswers": "answers" in site.intents,
+                "includePolls": "polls" in site.intents,
+                "includeAuthors": "authors" in site.intents,
+                "includeModeration": "moderation" in site.intents,
+                "includeCommentReactions": "comment_reactions" in site.intents,
+                "includeCommentUpvotes": "comment_upvotes" in site.intents,
+            },
         )
 
-    async def add_comment(
-        self, token: str, discussion_id: str, body: str, reply_to_id: str | None
-    ) -> dict[str, Any]:
-        data = await self._client.graphql_as_user(
-            token,
-            load("add_comment"),
-            {"discussionId": discussion_id, "body": body, "replyToId": reply_to_id},
-        )
-        result = data.get("addDiscussionComment")
-        comment = result.get("comment") if isinstance(result, dict) else None
-        if not isinstance(comment, dict) or not isinstance(comment.get("id"), str):
-            raise GitHubError("github_malformed_response")
-        return comment
 
-
-def _parse(value: object, site: SiteConfig) -> GitHubDiscussion | None:
+def _parse(value: object, site: SiteConfig, category_key: str) -> GitHubDiscussion | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -119,7 +120,10 @@ def _parse(value: object, site: SiteConfig) -> GitHubDiscussion | None:
     category = value.get("category")
     if not isinstance(repository, dict) or not isinstance(category, dict):
         raise GitHubError("github_malformed_response")
-    if repository.get("id") != site.repository_id or category.get("id") != site.category_id:
+    if (
+        repository.get("id") != site.repository_id
+        or category.get("id") != site.categories[category_key].node_id
+    ):
         return None
     node_id = value.get("id")
     number = value.get("number")

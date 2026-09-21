@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from feedback.config import Config, ServiceConfig, SiteConfig
+from feedback.config import CategoryConfig, Config, ServiceConfig, SiteConfig
 
 
 @pytest.fixture
@@ -19,12 +19,13 @@ def config(tmp_path: Path) -> Config:
             "cpp-social": SiteConfig(
                 id="cpp-social",
                 origins=("https://cpp.social",),
+                mode="discussion",
                 mapping="key",
                 repository="cppsocial/site",
                 repository_id="R_repo",
                 installation_id=123,
-                category="Resources",
-                category_id="DIC_category",
+                categories={"resources": CategoryConfig("resources", "Resources", "DIC_category")},
+                default_category="resources",
             )
         },
     )

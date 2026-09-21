@@ -12,8 +12,9 @@ from feedback.config import load_config
 
 def main() -> None:
     args = argument_parser().parse_args()
+    log_level = "debug" if args.verbose else args.log_level
     logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
+        level=getattr(logging, log_level.upper()),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     application = create_app(
@@ -23,6 +24,7 @@ def main() -> None:
             github_client_secret=args.github_client_secret_file,
             oauth_state_hmac_key=args.oauth_state_hmac_key_file,
         ),
+        verbose=args.verbose,
     )
     uvicorn.run(
         application,
@@ -34,7 +36,7 @@ def main() -> None:
         limit_concurrency=args.limit_concurrency,
         timeout_keep_alive=args.keep_alive_seconds,
         forwarded_allow_ips=args.forwarded_allow_ips,
-        log_level=args.log_level,
+        log_level=log_level,
     )
 
 
@@ -45,6 +47,11 @@ def argument_parser() -> argparse.ArgumentParser:
         "--github-app-private-key-file",
         type=Path,
         default=Path("/run/secrets/github-app-private-key"),
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="enable privacy-safe request and cache decision debug logs",
     )
     parser.add_argument(
         "--github-client-secret-file",

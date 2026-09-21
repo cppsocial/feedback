@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
+import string
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any
 from urllib.parse import urlsplit
 
 
@@ -16,15 +17,19 @@ class ConfigError(ValueError):
 
 _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
-_UPVOTE_SOURCES = frozenset({"thumbsup", "native", "both"})
 _REACTIONS = frozenset({"LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"})
-_FEATURES = frozenset(
+_INTENTS = frozenset(
     {
-        "counters",
-        "viewer_reactions",
-        "voting",
+        "upvotes",
+        "reactions",
         "discussion",
         "comments",
+        "answers",
+        "polls",
+        "authors",
+        "moderation",
+        "comment_reactions",
+        "comment_upvotes",
         "labels",
         "github_link",
     }
@@ -44,20 +49,20 @@ _SERVICE_KEYS = frozenset(
 _SITE_KEYS = frozenset(
     {
         "origins",
+        "mode",
         "mapping",
         "repository",
         "repository_id",
         "installation_id",
-        "category",
-        "category_id",
+        "categories",
+        "default_category",
+        "discussion_body",
         "cache_fresh_seconds",
         "refresh_cooldown_seconds",
         "refresh_sweep_seconds",
         "max_batch_size",
-        "downvotes",
-        "upvote_source",
         "reaction_counters",
-        "features",
+        "intents",
     }
 )
 
@@ -75,23 +80,39 @@ class ServiceConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryConfig:
+    key: str
+    name: str
+    node_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class SiteConfig:
     id: str
     origins: tuple[str, ...]
+    mode: str
     mapping: str
     repository: str
     repository_id: str
     installation_id: int
-    category: str
-    category_id: str
+    categories: Mapping[str, CategoryConfig]
+    default_category: str
+    discussion_body: str = "Feedback for [{title}]({url})"
     cache_fresh_seconds: int = 5
     refresh_cooldown_seconds: int = 5
     refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
-    downvotes: bool = True
-    upvote_source: str = "thumbsup"
-    reaction_counters: tuple[str, ...] = tuple(sorted(_REACTIONS))
-    features: frozenset[str] = frozenset(_FEATURES)
+    reaction_counters: tuple[str, ...] = ()
+    intents: frozenset[str] = frozenset({"upvotes"})
+
+    @property
+    def features(self) -> frozenset[str]:
+        """Compatibility name for callers created before intents were explicit."""
+        return self.intents
+
+    def category_for(self, resource_key: str) -> CategoryConfig:
+        prefix = resource_key.partition("/")[0]
+        return self.categories.get(prefix, self.categories[self.default_category])
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,48 +174,91 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             raise ConfigError(f"sites.{site_id}.origins contains duplicates")
         origins.update(site_origins)
 
+        mode = _string(value, "mode")
+        if mode not in {"ranking", "discussion"}:
+            raise ConfigError(f"sites.{site_id}.mode is unsupported")
         mapping = _string(value, "mapping")
         if mapping not in _MAPPINGS:
             raise ConfigError(f"sites.{site_id}.mapping is unsupported")
         repository = _string(value, "repository")
         if repository.count("/") != 1 or any(not part for part in repository.split("/")):
             raise ConfigError(f"sites.{site_id}.repository must be owner/name")
-        downvotes = _bool(value, "downvotes", True)
-        upvote_source = _string(value, "upvote_source") if "upvote_source" in value else "thumbsup"
-        if upvote_source not in _UPVOTE_SOURCES:
-            raise ConfigError(f"sites.{site_id}.upvote_source is unsupported")
+        categories_raw = _table(value, "categories")
+        if not categories_raw:
+            raise ConfigError(f"sites.{site_id}.categories must not be empty")
+        categories: dict[str, CategoryConfig] = {}
+        for category_key, category_value in categories_raw.items():
+            if not isinstance(category_key, str) or not _SITE_ID.fullmatch(category_key):
+                raise ConfigError(f"invalid category key: {category_key!r}")
+            if not isinstance(category_value, dict):
+                raise ConfigError(f"sites.{site_id}.categories.{category_key} must be a table")
+            _reject_keys(
+                category_value, {"name", "id"}, f"sites.{site_id}.categories.{category_key}"
+            )
+            categories[category_key] = CategoryConfig(
+                category_key,
+                _string(category_value, "name"),
+                _string(category_value, "id"),
+            )
+        if len({category.name for category in categories.values()}) != len(categories):
+            raise ConfigError(f"sites.{site_id}.categories contains duplicate names")
+        if len({category.node_id for category in categories.values()}) != len(categories):
+            raise ConfigError(f"sites.{site_id}.categories contains duplicate ids")
+        default_category = _string(value, "default_category")
+        if default_category not in categories:
+            raise ConfigError(f"sites.{site_id}.default_category is not configured")
+        discussion_body = (
+            _string(value, "discussion_body")
+            if "discussion_body" in value
+            else "Feedback for [{title}]({url})"
+        )
+        _validate_template(discussion_body, f"sites.{site_id}.discussion_body")
         reaction_counters = (
             tuple(item.upper() for item in _string_list(value, "reaction_counters"))
             if "reaction_counters" in value
-            else tuple(sorted(_REACTIONS))
+            else ()
         )
-        if not reaction_counters or any(item not in _REACTIONS for item in reaction_counters):
+        if any(item not in _REACTIONS for item in reaction_counters):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains an unsupported reaction")
         if len(set(reaction_counters)) != len(reaction_counters):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains duplicates")
-        features = frozenset(_string_list(value, "features")) if "features" in value else _FEATURES
-        if not features or not features <= _FEATURES:
-            raise ConfigError(f"sites.{site_id}.features contains an unsupported feature")
+        if "intents" not in value:
+            raise ConfigError(f"sites.{site_id}.intents is required")
+        intents = frozenset(_string_list(value, "intents"))
+        if not intents or not intents <= _INTENTS:
+            raise ConfigError(f"sites.{site_id}.intents contains an unsupported intent")
+        if (intents - {"upvotes", "reactions"}) and "discussion" not in intents:
+            raise ConfigError(
+                f"sites.{site_id}.intents requires discussion for discussion metadata"
+            )
+        if (
+            {"answers", "authors", "moderation", "comment_reactions", "comment_upvotes"} & intents
+        ) and "comments" not in intents:
+            raise ConfigError(f"sites.{site_id}.intents requires comments for comment metadata")
+        if mode == "ranking" and not intents <= {"upvotes", "reactions"}:
+            raise ConfigError(f"sites.{site_id}.intents is incompatible with ranking mode")
+        if reaction_counters and "reactions" not in intents:
+            raise ConfigError(f"sites.{site_id}.reaction_counters requires reactions intent")
 
         sites[site_id] = SiteConfig(
             id=site_id,
             origins=site_origins,
+            mode=mode,
             mapping=mapping,
             repository=repository,
             repository_id=_string(value, "repository_id"),
             installation_id=_bounded_int(value, "installation_id", 1, 2**63 - 1),
-            category=_string(value, "category"),
-            category_id=_string(value, "category_id"),
+            categories=MappingProxyType(categories),
+            default_category=default_category,
+            discussion_body=discussion_body,
             cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 5),
             refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 5),
             refresh_sweep_seconds=_bounded_int(
                 value, "refresh_sweep_seconds", 3600, 604_800, 86_400
             ),
             max_batch_size=_bounded_int(value, "max_batch_size", 1, 100, 100),
-            downvotes=downvotes,
-            upvote_source=upvote_source,
             reaction_counters=reaction_counters,
-            features=features,
+            intents=intents,
         )
 
     return Config(service, MappingProxyType(sites))
@@ -227,11 +291,19 @@ def _string_list(value: Mapping[str, Any], key: str) -> list[str]:
     return result
 
 
-def _bool(value: Mapping[str, Any], key: str, default: bool) -> bool:
-    result = value.get(key, default)
-    if not isinstance(result, bool):
-        raise ConfigError(f"{key} must be a boolean")
-    return result
+def _validate_template(value: str, name: str) -> None:
+    try:
+        parts = list(string.Formatter().parse(value))
+        fields = {field for _, field, _, _ in parts if field is not None}
+        if not fields <= {"key", "title", "url"} or any(
+            format_spec or conversion for _, field, format_spec, conversion in parts if field
+        ):
+            raise KeyError
+        rendered = value.format(key="key", title="title", url="https://example.test/")
+    except (AttributeError, IndexError, KeyError, ValueError) as exc:
+        raise ConfigError(f"{name} may use only {{key}}, {{title}}, and {{url}}") from exc
+    if not rendered or len(rendered) > 4096:
+        raise ConfigError(f"{name} is too large")
 
 
 def _bounded_int(
@@ -244,7 +316,7 @@ def _bounded_int(
     result = value.get(key, default)
     if isinstance(result, bool) or not isinstance(result, int) or not minimum <= result <= maximum:
         raise ConfigError(f"{key} must be an integer from {minimum} through {maximum}")
-    return cast(int, result)
+    return result
 
 
 def _origin(value: str, name: str) -> str:

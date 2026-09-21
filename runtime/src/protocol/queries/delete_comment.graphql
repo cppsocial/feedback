@@ -1,0 +1,3 @@
+mutation FeedbackDeleteComment($id: ID!) {
+  deleteDiscussionComment(input: {id: $id}) { comment { id deletedAt } }
+}

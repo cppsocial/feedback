@@ -1,95 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { viewerVote, vote } from "../src/protocol/github.js";
+import { toggleUpvote, viewerUpvotes } from "../src/protocol/github.js";
 
 const token = { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" };
 
-void test("switching votes removes the old reaction before adding the new one", async () => {
+void test("native discussion upvotes use addUpvote and return authoritative state", async () => {
+  let variables: Record<string, unknown> = {};
   let query = "";
   const fetch = (_input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
-    const body = init?.body;
-    if (typeof body !== "string") throw new TypeError("Expected a string body");
-    const request = JSON.parse(body) as { query: string };
-    query = request.query;
-    return Promise.resolve(Response.json({
-      data: {
-        addDown: {
-          subject: {
-            reactionGroups: [
-              { content: "THUMBS_UP", users: { totalCount: 3 }, viewerHasReacted: false },
-              { content: "THUMBS_DOWN", users: { totalCount: 2 }, viewerHasReacted: true },
-            ],
-          },
-        },
-      },
-    }));
-  };
-
-  const result = await vote(token, "D_1", "up", "down", fetch);
-
-  assert.ok(query.indexOf("removeUp") < query.indexOf("addDown"));
-  assert.deepEqual(result, { up: 3, down: 2, viewer: "down" });
-});
-
-void test("viewer state is queried before deciding a mutation", async () => {
-  const fetch = (): Promise<Response> => Promise.resolve(Response.json({
-    data: {
-      node: {
-        reactionGroups: [
-          { content: "THUMBS_UP", viewerHasReacted: true },
-          { content: "THUMBS_DOWN", viewerHasReacted: false },
-        ],
-      },
-    },
-  }));
-
-  assert.equal(await viewerVote(token, "D_1", fetch), "up");
-});
-
-void test("viewer state preserves simultaneous up and down reactions", async () => {
-  const fetch = (): Promise<Response> => Promise.resolve(Response.json({
-    data: {
-      node: {
-        reactionGroups: [
-          { content: "THUMBS_UP", viewerHasReacted: true },
-          { content: "THUMBS_DOWN", viewerHasReacted: true },
-        ],
-      },
-    },
-  }));
-
-  assert.equal(await viewerVote(token, "D_1", fetch), "both");
-});
-
-void test("voting up from both removes only the invalid down reaction", async () => {
-  let variables: Record<string, unknown> = {};
-  const fetch = (_input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
     if (typeof init?.body !== "string") throw new TypeError("Expected a string body");
-    const body = JSON.parse(init.body) as { variables: Record<string, unknown> };
-    variables = body.variables;
-    return Promise.resolve(Response.json({
-      data: {
-        removeDown: {
-          subject: {
-            reactionGroups: [
-              { content: "THUMBS_UP", users: { totalCount: 8 }, viewerHasReacted: true },
-              { content: "THUMBS_DOWN", users: { totalCount: 2 }, viewerHasReacted: false },
-            ],
-          },
-        },
-      },
-    }));
+    const request = JSON.parse(init.body) as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    query = request.query;
+    variables = request.variables;
+    return Promise.resolve(Response.json({ data: {
+      add: { subject: { upvoteCount: 12, viewerHasUpvoted: true } },
+    } }));
   };
 
-  const result = await vote(token, "D_1", "both", "up", fetch);
+  const result = await toggleUpvote(token, "D_1", false, fetch);
 
-  assert.deepEqual(variables, {
-    id: "D_1",
-    removeUp: false,
-    removeDown: true,
-    addUp: false,
-    addDown: false,
-  });
-  assert.deepEqual(result, { up: 8, down: 2, viewer: "up" });
+  assert.match(query, /addUpvote/);
+  assert.deepEqual(variables, { id: "D_1", remove: false, add: true });
+  assert.deepEqual(result, { count: 12, viewerHasUpvoted: true });
+});
+
+void test("viewer upvotes are queried in one nodes batch", async () => {
+  const fetch = (): Promise<Response> => Promise.resolve(Response.json({ data: { nodes: [
+    { id: "D_1", viewerHasUpvoted: true },
+    { id: "D_2", viewerHasUpvoted: false },
+  ] } }));
+
+  const result = await viewerUpvotes(token, ["D_1", "D_2"], fetch);
+
+  assert.equal(result.get("D_1"), true);
+  assert.equal(result.get("D_2"), false);
+});
+
+void test("successful HTTP responses with GraphQL errors are rejected", async () => {
+  const fetch = (): Promise<Response> => Promise.resolve(
+    Response.json({ errors: [{ type: "FORBIDDEN" }] }),
+  );
+
+  await assert.rejects(
+    viewerUpvotes(token, ["D_1"], fetch),
+    /rejected the GraphQL operation/,
+  );
 });

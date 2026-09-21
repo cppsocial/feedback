@@ -78,23 +78,35 @@ const resource = resourceFromDocument({
 });
 ```
 
-The bundled read-only discussion example can render the feedback site's test
-thread, including labels, canonical reaction counters, minimized comments, and
-replies:
+The bundled example exercises multiple threads, batched native upvotes, main-post
+reactions, labels, polls, comments, minimized/deleted comments, replies, accepted
+answers, author associations, and GitHub links. Supply
+comma-separated resource keys with `keys`:
 
-`https://feedback.cpp.social/example/?site=feedback-cpp-social&key=feedback%2Fexample&github=link`
+`https://feedback.cpp.social/example/?site=feedback-cpp-social&keys=feedback%2Fexample%2Cfeedback%2Fexample-two&github=link`
 
-## Counter cache
+## API and intent configuration
 
-The service database is a cache of GitHub discussions. It keeps
-lightweight discussion and comment metadata in `discussions` and `comments`,
-content separately in `content`, main-post reactions in `reactions`, comment
-reactions in `comment_reactions`, and discussion labels through
-`discussion_labels`. Reaction rows retain GitHub account IDs when the API
-returns them; an aggregate remainder row is used for accounts not included in
-the returned user page. The public API is read-only for discussion content and
-counters; discussion creation, voting, starring, and comment moderation are not
-exposed.
+Every site must list its required `intents`. Disabled intents return 404 and do
+not activate their refresh paths. The route contract, intent matrix, and audit
+of every server-side GitHub request path are in [docs/API.md](docs/API.md).
+
+The browser runtime sends user-specific viewer queries, native upvotes, and comments
+directly to GitHub. The service handles OAuth, discussion discovery/creation, and
+shared anonymous reads where caching prevents every visitor consuming a GitHub
+request.
+
+Use `--verbose` for privacy-safe route/status/timing and cache-decision logs. It
+does not log credentials, OAuth codes, bodies, origins, resource URLs, or client
+addresses.
+
+## Counter cache and discussion content
+
+The service database keeps discussion identifiers and aggregate counters only.
+Discussion/comment bodies are never persisted or
+reused between requests, preventing deleted content from being served from a
+stale cache. Only concurrent reads for the same thread share an in-flight GitHub
+call.
 
 `cache_fresh_seconds` is the age at which a requested tracked counter needs an
 authoritative GitHub refresh. The default is five seconds. A batched request
@@ -111,28 +123,26 @@ batch. The default is five seconds.
 `refresh_sweep_seconds` controls the low-priority full maintenance cycle. The
 default is 86400 seconds (daily). The service walks only discussions whose last
 authoritative snapshot is that old, in batches of 50 with pacing between full
-batches. Targeted requests and successful votes continue independently.
+batches. Targeted requests and successful upvotes continue independently.
 
-Votes made through the runtime update SQLite immediately using an atomic,
-confirmed delta. These local values are tentative: they do not change the last
-GitHub-refresh timestamp, and the next successful targeted or maintenance refresh
-replaces them with GitHub's absolute counts. Counter responses use `no-cache`, so
+Browser mutations do not write speculative server values. The next successful
+targeted or maintenance refresh replaces counters with GitHub's absolute counts.
+Counter responses use `no-cache`, so
 browsers revalidate with this service; that does not imply a GitHub request while
 the relevant snapshot remains fresh.
 
 The browser runtime keeps the last counter snapshot and the last confirmed viewer
-vote/star state in local storage for up to seven days. Consumers can render them
+native-upvote state in local storage for up to seven days. Consumers can render them
 synchronously while the API request is in flight, avoiding a flash of zero counters
 or unselected vote buttons. Snapshots contain only the site/resource key, discussion
-node ID, counts, viewer state, star state, and save time; authentication tokens are not part of
+node ID, counts, viewer state, and save time; authentication tokens are not part of
 this cache. Storage is optional and failures fall back to the network normally.
 
-Once authenticated, the runtime also resolves the current user's vote and star
+Once authenticated, the runtime also resolves the current user's native-upvote
 state for all visible discussions in one batched GitHub query. That viewer-specific
 snapshot is reused for five minutes, including across reloads, and then refreshed
 on demand. This makes reactions created on GitHub or another device visible without
-turning every counter request into an authenticated GitHub request. Stars map to
-GitHub's `EYES` reaction because Discussions does not provide a star reaction.
+turning every counter request into an authenticated GitHub request.
 
 Operational logs are emitted at GitHub boundaries rather than for every HTTP
 request. Reaction-refresh lines include the site, trigger (`requested` or

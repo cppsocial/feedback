@@ -1,6 +1,6 @@
 import type { AccessToken } from "../api/client.js";
 
-import type { KeyValueStorage } from "../feedback/stars.js";
+import type { KeyValueStorage } from "../storage.js";
 
 interface StoredToken {
   value: string;

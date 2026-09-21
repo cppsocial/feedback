@@ -43,7 +43,11 @@ class ReactionRefresher:
         refreshed = 0
         for offset in range(0, len(node_ids), self._chunk_size):
             chunk = node_ids[offset : offset + self._chunk_size]
-            data = await self._github.graphql(site.installation_id, _NODES_QUERY, {"ids": chunk})
+            data = await self._github.graphql(
+                site.installation_id,
+                _NODES_QUERY,
+                {"ids": chunk, "includeReactions": bool(site.reaction_counters)},
+            )
             nodes = data.get("nodes")
             if not isinstance(nodes, list):
                 raise GitHubError("github_malformed_response")
@@ -76,7 +80,7 @@ def _parse_node(
     node_id = value.get("id")
     locked = value.get("locked")
     updated = value.get("updatedAt")
-    groups = value.get("reactionGroups")
+    groups = value.get("reactionGroups", [])
     if not isinstance(node_id, str) or not isinstance(locked, bool) or not isinstance(groups, list):
         raise GitHubError("github_malformed_response")
     counts: dict[str, tuple[int, tuple[str, ...]]] = {}

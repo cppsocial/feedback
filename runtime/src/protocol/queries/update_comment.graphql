@@ -1,0 +1,5 @@
+mutation FeedbackUpdateComment($id: ID!, $body: String!) {
+  updateDiscussionComment(input: {commentId: $id, body: $body}) {
+    comment { id body updatedAt }
+  }
+}

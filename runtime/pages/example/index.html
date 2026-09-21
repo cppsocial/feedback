@@ -11,11 +11,12 @@
   <body>
     <main>
       <h1>Feedback integration example</h1>
-      <p>This page renders the feedback discussion, canonical reactions, labels, comments, minimized comments, and replies.</p>
+      <p>This page exercises batched native upvotes, multiple discussion threads, reactions, labels, polls, comments, minimized or deleted comments, replies, accepted answers, and GitHub links.</p>
       <p>API: <code id="api-origin"></code></p>
       <div id="authentication-status" class="authentication-status"></div>
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">
+        <label>Thread <select id="comment-key"></select></label>
         <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Add a comment"></textarea>
         <button type="submit">Sign in and comment</button>
         <button id="clear-reply" type="button" hidden>Cancel reply</button>

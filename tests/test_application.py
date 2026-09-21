@@ -33,21 +33,7 @@ def test_reactions_returns_sorted_deduplicated_cached_and_unknown_items(
     assert list(response.json()["items"]) == ["known", "unknown"]
     assert response.json()["items"]["known"] == {
         "id": "D_known",
-        "up": 4,
-        "down": 1,
         "upvotes": 0,
-        "reactions": {
-            "CONFUSED": 0,
-            "EYES": 0,
-            "HEART": 0,
-            "HOORAY": 0,
-            "LAUGH": 0,
-            "ROCKET": 0,
-            "THUMBS_DOWN": 1,
-            "THUMBS_UP": 4,
-        },
-        "age": 100,
-        "stale": True,
     }
     assert response.json()["items"]["unknown"]["id"] is None
 

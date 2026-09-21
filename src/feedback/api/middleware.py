@@ -1,4 +1,9 @@
+import logging
+import time
+
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+logger = logging.getLogger("feedback.http")
 
 
 class SecurityHeadersMiddleware:
@@ -20,3 +25,35 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, secure_send)
+
+
+class VerboseRequestMiddleware:
+    """Log request routing metadata without user content or credentials."""
+
+    def __init__(self, app: ASGIApp, *, enabled: bool = False) -> None:
+        self.app = app
+        self.enabled = enabled
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if not self.enabled or scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = time.monotonic()
+        status = 500
+
+        async def logged_send(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, logged_send)
+        finally:
+            logger.debug(
+                "HTTP request: method=%s path=%s status=%s elapsed_ms=%s",
+                scope.get("method"),
+                scope.get("path"),
+                status,
+                round((time.monotonic() - started) * 1000),
+            )

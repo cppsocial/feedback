@@ -12,7 +12,6 @@ from feedback.protocol.github.oauth import OAuthClient
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner
 from feedback.service.reaction_cache import ReactionRefresher
-from feedback.service.votes import VoteService
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -26,7 +25,6 @@ class FeedbackRuntime:
     refresher: ReactionRefresher | None = None
     grants: CreationGrantSigner | None = None
     discussions: DiscussionService | None = None
-    votes: VoteService | None = None
     _refresh_tasks: dict[str, asyncio.Task[int]] = field(default_factory=dict)
     _refresh_last: dict[tuple[str, str], float] = field(default_factory=dict)
     _sweep_task: asyncio.Task[None] | None = None
@@ -37,6 +35,7 @@ class FeedbackRuntime:
 
     async def refresh_stale(self, site: SiteConfig, cached: dict[str, ReactionCounts]) -> None:
         if self.refresher is None:
+            logger.debug("Reaction refresh skipped: site=%s reason=no_refresher", site.id)
             return
         running = self._refresh_tasks.get(site.id)
         if running is not None and not running.done():
@@ -56,6 +55,11 @@ class FeedbackRuntime:
                 eligible.append(value)
                 self._refresh_last[(site.id, key)] = now
         if not eligible:
+            logger.debug(
+                "Reaction refresh skipped: site=%s reason=fresh_or_cooldown nodes=%s",
+                site.id,
+                len(cached),
+            )
             return
         await self._refresh_batch(site, eligible, reason="requested")
 
@@ -63,6 +67,8 @@ class FeedbackRuntime:
         if self.refresher is None:
             return
         for site in self.config.sites.values():
+            if "upvotes" not in site.intents:
+                continue
             cutoff = int(self.clock()) - site.refresh_sweep_seconds
             after = ""
             batches = 0

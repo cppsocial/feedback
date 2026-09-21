@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { PendingVoteStore } from "../src/auth/pending-vote.js";
-import type { KeyValueStorage } from "../src/feedback/stars.js";
+import type { KeyValueStorage } from "../src/storage.js";
 
 void test("a pending vote is session-scoped and consumed once", () => {
   const values = new Map<string, string>();
@@ -13,8 +13,8 @@ void test("a pending vote is session-scoped and consumed once", () => {
   };
   const pending = new PendingVoteStore("cpp-social", storage);
 
-  pending.set("feedback/example", "up");
+  pending.set("feedback/example");
 
-  assert.deepEqual(pending.take(), { resourceKey: "feedback/example", vote: "up" });
+  assert.deepEqual(pending.take(), { resourceKey: "feedback/example" });
   assert.equal(pending.take(), null);
 });

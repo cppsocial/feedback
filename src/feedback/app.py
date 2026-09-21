@@ -14,28 +14,25 @@ from starlette.middleware import Middleware
 from starlette.routing import Route
 
 from feedback.api.http import ApiError
-from feedback.api.middleware import SecurityHeadersMiddleware
+from feedback.api.middleware import SecurityHeadersMiddleware, VerboseRequestMiddleware
 from feedback.api.routes import (
-    add_comment,
     api_error,
     discussion_content,
+    ensure_discussion,
     homepage,
     oauth_authorize,
     oauth_exchange,
     reactions,
-    viewer_reactions,
 )
 from feedback.config import Config
 from feedback.database.sqlite import SiteDatabase
 from feedback.protocol.github.client import GitHubClient
 from feedback.protocol.github.discussions import GitHubDiscussions
 from feedback.protocol.github.oauth import OAuthClient
-from feedback.protocol.github.votes import GitHubVotes
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner, StateSigner
 from feedback.service.reaction_cache import ReactionRefresher
 from feedback.service.runtime import FeedbackRuntime
-from feedback.service.votes import VoteService
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -56,7 +53,7 @@ def create_app(
     refresher: ReactionRefresher | None = None,
     grants: CreationGrantSigner | None = None,
     discussions: DiscussionService | None = None,
-    votes: VoteService | None = None,
+    verbose: bool = False,
 ) -> Starlette:
     if oauth is not None and grants is None:
         raise ValueError("OAuth and creation grants must be configured together")
@@ -69,7 +66,6 @@ def create_app(
         resolved_refresher: ReactionRefresher | None
         resolved_grants: CreationGrantSigner | None
         resolved_discussions: DiscussionService | None
-        resolved_votes: VoteService | None
         if secret_files is not None:
             owned_http = httpx.AsyncClient(
                 timeout=httpx.Timeout(
@@ -85,14 +81,12 @@ def create_app(
             resolved_grants = CreationGrantSigner(signing_key, clock=clock)
             github = _github_client(loaded, owned_http, clock, secret_files.github_app_private_key)
             resolved_refresher = ReactionRefresher(github, clock=clock)
-            resolved_discussions = DiscussionService(GitHubDiscussions(github))
-            resolved_votes = VoteService(GitHubVotes(owned_http))
+            resolved_discussions = DiscussionService(GitHubDiscussions(github), clock=clock)
         else:
             resolved_oauth = oauth
             resolved_refresher = refresher
             resolved_grants = grants
             resolved_discussions = discussions
-            resolved_votes = votes
         databases = {
             site_id: SiteDatabase(loaded.service.data_directory / f"{site_id}.sqlite3")
             for site_id in loaded.sites
@@ -107,7 +101,6 @@ def create_app(
             refresher=resolved_refresher,
             grants=resolved_grants,
             discussions=resolved_discussions,
-            votes=resolved_votes,
         )
         application.state.services = services
         services.start_sweeps()
@@ -138,24 +131,22 @@ def create_app(
                 methods=["POST", "OPTIONS"],
             ),
             Route(
+                "/v1/sites/{site}/discussions/ensure",
+                ensure_discussion,
+                methods=["POST", "OPTIONS"],
+            ),
+            Route(
                 "/v1/sites/{site}/discussion",
                 discussion_content,
                 methods=["GET"],
             ),
-            Route(
-                "/v1/sites/{site}/comments",
-                add_comment,
-                methods=["POST", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/viewer",
-                viewer_reactions,
-                methods=["GET", "OPTIONS"],
-            ),
         ],
         lifespan=lifespan,
         exception_handlers={ApiError: api_error},
-        middleware=[Middleware(SecurityHeadersMiddleware)],
+        middleware=[
+            Middleware(SecurityHeadersMiddleware),
+            Middleware(VerboseRequestMiddleware, enabled=verbose),
+        ],
     )
     return application
 

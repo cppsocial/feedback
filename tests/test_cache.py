@@ -86,7 +86,7 @@ async def test_refreshes_known_nodes_and_preserves_missing_nodes(
     refreshed = await refresher.refresh(site, database, database.reactions(["a", "b"]).values())
 
     assert refreshed == 1
-    assert github.calls == [(123, {"ids": ["D_a", "D_b"]})]
+    assert github.calls == [(123, {"ids": ["D_a", "D_b"], "includeReactions": False})]
     assert database.reactions(["a"])["a"].up == 7
     assert database.reactions(["b"])["b"].fetched_at == 1
 
@@ -147,21 +147,7 @@ def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
     assert response.status_code == 200
     assert response.json()["items"]["feedback/example"] == {
         "id": "D_example",
-        "up": 9,
-        "down": 2,
         "upvotes": 0,
-        "reactions": {
-            "CONFUSED": 0,
-            "EYES": 0,
-            "HEART": 0,
-            "HOORAY": 0,
-            "LAUGH": 0,
-            "ROCKET": 0,
-            "THUMBS_DOWN": 2,
-            "THUMBS_UP": 9,
-        },
-        "age": 0,
-        "stale": False,
     }
     assert len(github.calls) == 1
     assert "GitHub reaction refresh completed" in caplog.text
@@ -310,6 +296,6 @@ async def test_daily_sweep_refreshes_only_old_tracked_discussions(
 
     await runtime.sweep_once()
 
-    assert github.calls == [(123, {"ids": ["D_old"]})]
+    assert github.calls == [(123, {"ids": ["D_old"], "includeReactions": False})]
     assert store.reactions(["old"])["old"].up == 6
     assert store.reactions(["recent"])["recent"].fetched_at == 99_999

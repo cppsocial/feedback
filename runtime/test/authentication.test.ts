@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Authentication, type AuthEnvironment, type AuthMessage } from "../src/auth/controller.js";
 import type { OAuthTransport } from "../src/auth/controller.js";
-import type { KeyValueStorage } from "../src/feedback/stars.js";
+import type { KeyValueStorage } from "../src/storage.js";
 
 void test("authentication verifies the callback and GitHub viewer before storing a token", async () => {
   const values = new Map<string, string>();

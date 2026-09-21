@@ -1,0 +1,6 @@
+mutation FeedbackAnswer($id: ID!, $unmark: Boolean!, $mark: Boolean!) {
+  unmark: unmarkDiscussionCommentAsAnswer(input: {id: $id})
+    @include(if: $unmark) { discussion { id answer { id } } }
+  mark: markDiscussionCommentAsAnswer(input: {id: $id})
+    @include(if: $mark) { discussion { id answer { id } } }
+}

@@ -1,5 +1,5 @@
 import type { AccessToken, Authorization } from "../api/client.js";
-import type { KeyValueStorage } from "../feedback/stars.js";
+import type { KeyValueStorage } from "../storage.js";
 import { trustedOrigin } from "./origin.js";
 import { SessionTokenStore } from "./session.js";
 import viewerQuery from "../protocol/queries/viewer.graphql";

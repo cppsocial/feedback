@@ -1,5 +1,6 @@
 INSERT INTO discussions (
     resource_id,
+    category_key,
     lookup_term,
     id,
     number,
@@ -9,8 +10,9 @@ INSERT INTO discussions (
     thumbsdown,
     fetched_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(resource_id) DO UPDATE SET
+    category_key = excluded.category_key,
     lookup_term = excluded.lookup_term,
     id = excluded.id,
     number = excluded.number,

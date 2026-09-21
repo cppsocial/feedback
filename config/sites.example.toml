@@ -10,19 +10,30 @@ http_request_timeout_seconds = 10
 
 [sites.example]
 origins = ["https://www.example.com"]
+mode = "discussion"
 mapping = "key"
 repository = "example/site"
 repository_id = "replace-with-repository-node-id"
 installation_id = 1
-category = "Resources"
-category_id = "replace-with-category-node-id"
+default_category = "articles"
+discussion_body = "Discussion for [{title}]({url})."
 
 # Optional cache tuning; these are the defaults.
 # cache_fresh_seconds = 5
 # refresh_cooldown_seconds = 5
 # refresh_sweep_seconds = 86400
 # max_batch_size = 100
-features = ["counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link"]
+intents = ["upvotes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "comment_upvotes", "labels", "github_link"]
 reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
-upvote_source = "both" # thumbsup, native, or both
-downvotes = true
+
+[sites.example.categories.articles]
+name = "Articles"
+id = "replace-with-articles-category-node-id"
+
+[sites.example.categories.tips]
+name = "Tips"
+id = "replace-with-tips-category-node-id"
+
+[sites.example.categories.updates]
+name = "Updates"
+id = "replace-with-updates-category-node-id"

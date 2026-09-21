@@ -1,0 +1,6 @@
+mutation FeedbackPollVote($id: ID!, $remove: Boolean!, $add: Boolean!) {
+  remove: removeDiscussionPollVote(input: {pollOptionId: $id})
+    @include(if: $remove) { pollOption { id totalVoteCount viewerHasVoted } }
+  add: addDiscussionPollVote(input: {pollOptionId: $id})
+    @include(if: $add) { pollOption { id totalVoteCount viewerHasVoted } }
+}

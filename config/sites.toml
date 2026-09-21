@@ -10,22 +10,30 @@ http_request_timeout_seconds = 10
 
 [sites.feedback-cpp-social]
 origins = ["https://feedback.cpp.social"]
+mode = "discussion"
 mapping = "key"
 repository = "cppsocial/feedback"
 repository_id = "R_kgDOUc9png"
 installation_id = 162105624
-category = "General"
-category_id = "DIC_kwDOUc9pns4DFwQt"
-features = ["counters", "viewer_reactions", "voting", "discussion", "comments", "labels", "github_link"]
+default_category = "general"
+discussion_body = "Feedback for [{title}]({url})"
+intents = ["upvotes", "reactions", "discussion", "comments", "labels", "github_link"]
 reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
-upvote_source = "both"
-downvotes = true
+
+[sites.feedback-cpp-social.categories.general]
+name = "General"
+id = "DIC_kwDOUc9pns4DFwQt"
 
 [sites.cpp-social]
 origins = ["https://cpp.social"]
+mode = "ranking"
 mapping = "key"
 repository = "cppsocial/site"
 repository_id = "R_kgDOSOfNQQ"
 installation_id = 162105624
-category = "Resources"
-category_id = "DIC_kwDOSOfNQc4DFW7W"
+default_category = "resources"
+intents = ["upvotes"]
+
+[sites.cpp-social.categories.resources]
+name = "Resources"
+id = "DIC_kwDOSOfNQc4DFW7W"

@@ -1,34 +1,62 @@
-query FeedbackDiscussion($id: ID!, $comments: Int!) {
+query FeedbackDiscussion(
+  $id: ID!
+  $comments: Int!
+  $includeComments: Boolean!
+  $includeLabels: Boolean!
+  $includeLink: Boolean!
+  $includeReactions: Boolean!
+  $includeAnswers: Boolean!
+  $includePolls: Boolean!
+  $includeAuthors: Boolean!
+  $includeModeration: Boolean!
+  $includeCommentReactions: Boolean!
+  $includeCommentUpvotes: Boolean!
+) {
   node(id: $id) {
     ... on Discussion {
       id
       number
       title
       body
-      url
+      url @include(if: $includeLink)
       repository { id }
       category { id name }
-      labels(first: 100) { nodes { id name color description } }
-      reactionGroups { content users { totalCount nodes { id } } }
+      labels(first: 100) @include(if: $includeLabels) { nodes { id name color description } }
+      reactionGroups @include(if: $includeReactions) { content users { totalCount nodes { id } } }
       upvoteCount
-      poll {
+      poll @include(if: $includePolls) {
         question
-        options { option totalVotes viewerHasVoted }
+        totalVoteCount
+        options(first: 100) { nodes { id option totalVoteCount } }
       }
-      answer { id }
-      comments(first: $comments) {
+      answer @include(if: $includeAnswers) { id }
+      comments(first: $comments) @include(if: $includeComments) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
         nodes {
-          id body url
-          author { ... on Actor { id login } }
-          createdAt updatedAt isMinimized minimizedReason
-          isAnswer isAnswerVerified
-          reactionGroups { content users { totalCount nodes { id } } }
+          id body
+          url @include(if: $includeLink)
+          author @include(if: $includeAuthors) { id login avatarUrl }
+          authorAssociation @include(if: $includeAuthors)
+          createdAt updatedAt deletedAt
+          isMinimized @include(if: $includeModeration)
+          minimizedReason @include(if: $includeModeration)
+          isAnswer @include(if: $includeAnswers)
+          reactionGroups @include(if: $includeCommentReactions) { content users { totalCount } }
+          upvoteCount @include(if: $includeCommentUpvotes)
           replies(first: $comments) {
+            totalCount
+            pageInfo { hasNextPage endCursor }
             nodes {
-              id body url
-              author { ... on Actor { id login } }
-              createdAt updatedAt isMinimized minimizedReason
-              reactionGroups { content users { totalCount nodes { id } } }
+              id body
+              url @include(if: $includeLink)
+              author @include(if: $includeAuthors) { id login avatarUrl }
+              authorAssociation @include(if: $includeAuthors)
+              createdAt updatedAt deletedAt
+              isMinimized @include(if: $includeModeration)
+              minimizedReason @include(if: $includeModeration)
+              reactionGroups @include(if: $includeCommentReactions) { content users { totalCount } }
+              upvoteCount @include(if: $includeCommentUpvotes)
             }
           }
         }

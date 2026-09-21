@@ -11,6 +11,7 @@ from feedback.database.migrations import scripts
 from feedback.database.queries import load
 
 MIGRATIONS = scripts()
+SCHEMA_VERSION = 4
 REACTIONS = load("reactions")
 DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
@@ -26,16 +27,26 @@ class DatabaseError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class ReactionCounts:
     node_id: str
+    number: int
     thumbsup: int
     thumbsdown: int
     upvotes: int
     fetched_at: int
     reactions: dict[str, int]
 
+    @property
+    def up(self) -> int:
+        return self.thumbsup
+
+    @property
+    def down(self) -> int:
+        return self.thumbsdown
+
 
 @dataclass(frozen=True, slots=True)
 class Discussion:
     resource_id: str
+    category_key: str
     lookup_term: str
     node_id: str
     number: int
@@ -51,11 +62,11 @@ class SiteDatabase:
         self.path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
         with self.connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > len(MIGRATIONS):
+            if version not in {0, SCHEMA_VERSION}:
                 raise DatabaseError(
-                    f"database {self.path} has schema {version}, expected at most {len(MIGRATIONS)}"
+                    f"database {self.path} has schema {version}, expected {SCHEMA_VERSION}"
                 )
-            for migration in MIGRATIONS[version:]:
+            for migration in MIGRATIONS if version == 0 else ():
                 connection.executescript(migration)
 
     def connect(self) -> sqlite3.Connection:
@@ -75,11 +86,12 @@ class SiteDatabase:
         return {
             row[0]: ReactionCounts(
                 node_id=row[1],
-                thumbsup=row[2],
-                thumbsdown=row[3],
-                upvotes=row[4],
-                fetched_at=row[5],
-                reactions=json.loads(row[6]),
+                number=row[2],
+                thumbsup=row[3],
+                thumbsdown=row[4],
+                upvotes=row[5],
+                fetched_at=row[6],
+                reactions=json.loads(row[7]),
             )
             for row in rows
         }
@@ -88,44 +100,6 @@ class SiteDatabase:
         with self.connect() as connection:
             row = connection.execute(DISCUSSION, (resource_id,)).fetchone()
         return Discussion(*row) if row is not None else None
-
-    def comment_belongs_to(self, comment_id: str, discussion_id: str) -> bool:
-        with self.connect() as connection:
-            row = connection.execute(
-                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ?",
-                (comment_id, discussion_id),
-            ).fetchone()
-        return row is not None
-
-    def comment_can_receive_reply(self, comment_id: str, discussion_id: str) -> bool:
-        with self.connect() as connection:
-            row = connection.execute(
-                "SELECT 1 FROM comments WHERE id = ? AND discussion_id = ? AND parent_id IS NULL",
-                (comment_id, discussion_id),
-            ).fetchone()
-        return row is not None
-
-    def put_comment(
-        self,
-        *,
-        comment_id: str,
-        discussion_id: str,
-        parent_id: str | None,
-        body: str,
-        url: str | None,
-        fetched_at: int,
-    ) -> None:
-        with self.connect() as connection:
-            connection.execute(
-                "INSERT OR REPLACE INTO content (id, body) VALUES (?, ?)",
-                (comment_id, body),
-            )
-            connection.execute(
-                "INSERT OR REPLACE INTO comments "
-                "(id, discussion_id, parent_id, content_id, url, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (comment_id, discussion_id, parent_id, comment_id, url, fetched_at),
-            )
 
     def tracked_reactions(
         self, *, after: str, fetched_before: int, limit: int
@@ -137,11 +111,12 @@ class SiteDatabase:
                 row[0],
                 ReactionCounts(
                     node_id=row[1],
-                    thumbsup=row[2],
-                    thumbsdown=row[3],
-                    upvotes=row[4],
-                    fetched_at=row[5],
-                    reactions=json.loads(row[6]),
+                    number=row[2],
+                    thumbsup=row[3],
+                    thumbsdown=row[4],
+                    upvotes=row[5],
+                    fetched_at=row[6],
+                    reactions=json.loads(row[7]),
                 ),
             )
             for row in rows
@@ -151,13 +126,14 @@ class SiteDatabase:
         self,
         *,
         resource_id: str,
+        category_key: str = "default",
         lookup_term: str,
         node_id: str,
         number: int,
         title: str,
         url: str,
-        thumbsup: int = 0,
-        thumbsdown: int = 0,
+        up: int = 0,
+        down: int = 0,
         upvotes: int = 0,
         reactions: dict[str, int] | None = None,
         fetched_at: int | None = None,
@@ -168,13 +144,14 @@ class SiteDatabase:
                 PUT_DISCUSSION,
                 (
                     resource_id,
+                    category_key,
                     lookup_term,
                     node_id,
                     number,
                     title,
                     url,
-                    thumbsup,
-                    thumbsdown,
+                    up,
+                    down,
                     fetched,
                 ),
             )
@@ -185,7 +162,7 @@ class SiteDatabase:
             if reactions:
                 connection.executemany(
                     "INSERT OR REPLACE INTO reactions "
-                    "(discussion_id, reaction, account_id, count, updated_at) "
+                    "(object_id, reaction, account_id, count, updated_at) "
                     "VALUES (?, ?, '*', ?, ?)",
                     [(node_id, name, count, fetched) for name, count in reactions.items()],
                 )
@@ -209,12 +186,12 @@ class SiteDatabase:
             )
             if cursor.rowcount == 1:
                 connection.execute(
-                    "DELETE FROM reactions WHERE discussion_id = ?",
+                    "DELETE FROM reactions WHERE object_id = ?",
                     (node_id,),
                 )
                 connection.executemany(
                     "INSERT INTO reactions "
-                    "(discussion_id, reaction, account_id, count, updated_at) "
+                    "(object_id, reaction, account_id, count, updated_at) "
                     "VALUES (?, ?, ?, ?, ?)",
                     [
                         (node_id, name, account_id, count, fetched_at)
@@ -229,13 +206,13 @@ class SiteDatabase:
         *,
         resource_id: str,
         node_id: str,
-        thumbsup_delta: int,
-        thumbsdown_delta: int,
+        up_delta: int,
+        down_delta: int,
     ) -> tuple[int, int] | None:
         with self.connect() as connection:
             row = connection.execute(
                 ADJUST_REACTIONS,
-                (thumbsup_delta, thumbsdown_delta, resource_id, node_id),
+                (up_delta, down_delta, resource_id, node_id),
             ).fetchone()
         return (row[0], row[1]) if row is not None else None
 

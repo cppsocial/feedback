@@ -1,9 +1,7 @@
-import type { Vote } from "../protocol/github.js";
-import type { KeyValueStorage } from "../feedback/stars.js";
+import type { KeyValueStorage } from "../storage.js";
 
 export interface PendingVote {
   resourceKey: string;
-  vote: Vote;
 }
 
 export class PendingVoteStore {
@@ -15,8 +13,8 @@ export class PendingVoteStore {
     this.#key = `cppsocial.feedback.v1.${site}.pending-vote`;
   }
 
-  set(resourceKey: string, vote: Vote): void {
-    this.#storage.setItem(this.#key, JSON.stringify({ resourceKey, vote }));
+  set(resourceKey: string): void {
+    this.#storage.setItem(this.#key, JSON.stringify({ resourceKey }));
   }
 
   take(): PendingVote | null {
@@ -26,12 +24,11 @@ export class PendingVoteStore {
     try {
       const value = JSON.parse(raw) as Partial<PendingVote>;
       if (
-        typeof value.resourceKey !== "string" ||
-        (value.vote !== "up" && value.vote !== "down")
+        typeof value.resourceKey !== "string"
       ) {
         return null;
       }
-      return { resourceKey: value.resourceKey, vote: value.vote };
+      return { resourceKey: value.resourceKey };
     } catch {
       return null;
     }

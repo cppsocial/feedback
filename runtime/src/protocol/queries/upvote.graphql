@@ -1,0 +1,11 @@
+mutation FeedbackUpvote($id: ID!, $remove: Boolean!, $add: Boolean!) {
+  remove: removeUpvote(input: {subjectId: $id})
+    @include(if: $remove) { subject { ...FeedbackUpvoteState } }
+  add: addUpvote(input: {subjectId: $id})
+    @include(if: $add) { subject { ...FeedbackUpvoteState } }
+}
+
+fragment FeedbackUpvoteState on Votable {
+  upvoteCount
+  viewerHasUpvoted
+}

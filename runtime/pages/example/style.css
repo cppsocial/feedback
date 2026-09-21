@@ -31,10 +31,12 @@ main {
 }
 
 .thread {
-  border: 1px solid #ddd;
-  border-radius: 0.5rem;
-  padding: 1rem;
+  display: grid;
+  gap: 1rem;
 }
+
+.discussion { border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
 
 .thread h2 {
   font-size: 1rem;

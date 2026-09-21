@@ -91,6 +91,10 @@ comma-separated resource keys with `keys`:
 
 `https://feedback.cpp.social/example/?site=feedback-cpp-social&keys=feedback%2Fexample%2Cfeedback%2Fexample-two&github=link`
 
+Add `firstPost=hidden` when the host page already represents the discussion's
+opening post. This frontend-only option keeps post reactions, native upvotes,
+poll controls, and comments visible.
+
 ## API and intent configuration
 
 Every site must list its required `intents`. Disabled intents return 404 and do

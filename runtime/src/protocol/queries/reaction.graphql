@@ -1,6 +1,10 @@
 mutation FeedbackReaction($id: ID!, $content: ReactionContent!, $remove: Boolean!, $add: Boolean!) {
   remove: removeReaction(input: {subjectId: $id, content: $content})
-    @include(if: $remove) { subject { id } }
+    @include(if: $remove) {
+      subject { id reactionGroups { content reactors { totalCount } viewerHasReacted } }
+    }
   add: addReaction(input: {subjectId: $id, content: $content})
-    @include(if: $add) { subject { id } }
+    @include(if: $add) {
+      subject { id reactionGroups { content reactors { totalCount } viewerHasReacted } }
+    }
 }

@@ -3,7 +3,12 @@ import type { ReactionState } from "../api/client.js";
 import { trustedOrigin } from "../auth/origin.js";
 import { Authentication } from "../auth/controller.js";
 import { createAuthenticationStatus } from "../auth/status.js";
-import { setReaction, viewerSubjectStates } from "../protocol/github.js";
+import {
+  setPollVote,
+  setReaction,
+  toggleUpvote as toggleSubjectUpvote,
+  viewerSubjectStates,
+} from "../protocol/github.js";
 import type { Reaction, ViewerSubjectState } from "../protocol/github.js";
 
 const parameters = new URLSearchParams(location.search);
@@ -17,11 +22,20 @@ const keys = [...new Set(
     .split(",").map((value) => value.trim()).filter(Boolean),
 )];
 const githubMode = parameters.get("github") ?? "link";
+const showFirstPost = parameters.get("firstPost") !== "hidden";
+const reactionTypes: readonly Reaction[] = [
+  "THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES",
+];
 const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
 let cardViewerStates = new Map<string, ViewerSubjectState>();
+const counterOverrides = new Map<string, {
+  upvotes?: number;
+  viewerHasUpvoted?: boolean;
+  reactions: Map<Reaction, { count: number; selected: boolean }>;
+}>();
 required("api-origin").textContent = apiOrigin;
 const authenticationStatus = createAuthenticationStatus({
   mount: required("authentication-status"),
@@ -79,12 +93,17 @@ async function render(): Promise<void> {
     let states = await client.reactions(keys);
     const token = authentication.token();
     if (token !== null) {
-      states = await client.syncViewerUpvotes(keys, token);
-      const ids = [...states.values()].flatMap((state) => state.id ? [state.id] : []);
-      cardViewerStates = new Map(await viewerSubjectStates(token, ids));
+      try {
+        states = await client.syncViewerUpvotes(keys, token);
+        const ids = [...states.values()].flatMap((state) => state.id ? [state.id] : []);
+        cardViewerStates = new Map(await viewerSubjectStates(token, ids));
+      } catch (error) {
+        console.error("Unable to load GitHub viewer state", error);
+      }
     } else {
       cardViewerStates.clear();
     }
+    states = applyCounterOverrides(states);
     renderRankingCards(states);
     const existingKeys = keys.filter((key) => states.get(key)?.id);
     const root = required("thread");
@@ -93,7 +112,11 @@ async function render(): Promise<void> {
     let contentError: unknown;
     try {
       contents = new Map(await client.discussionContents(existingKeys));
-      await addViewerState([...contents.values()].map((value) => value.discussion));
+      try {
+        await addViewerState([...contents.values()].map((value) => value.discussion));
+      } catch (error) {
+        console.error("Unable to load GitHub comment viewer state", error);
+      }
     } catch (error) {
       contentError = error;
     }
@@ -104,7 +127,7 @@ async function render(): Promise<void> {
       const state = states.get(key);
       if (!state?.id) {
         renderMissingDiscussion(article, key, state);
-        return;
+        continue;
       }
       try {
         const payload = contents.get(key);
@@ -168,7 +191,9 @@ async function react(key: string, reaction: Reaction, selected: boolean): Promis
     updateAuthenticationUi();
     const state = (await client.reactions([key])).get(key);
     if (!state?.id) throw new Error("Create the discussion with an upvote before reacting.");
-    await setReaction(token, state.id, reaction, !selected);
+    const result = await setReaction(token, state.id, reaction, !selected);
+    const override = counterOverride(key);
+    override.reactions.set(reaction, { count: result.count, selected: result.viewerHasReacted });
     status.textContent = `Updated ${reaction} on ${key}.`;
     await render();
   } catch (error) {
@@ -189,44 +214,44 @@ function renderDiscussion(
 ): void {
   appendText(root, "h2", string(content.title) || key);
   if (isViewer(content.author)) root.classList.add("own-post");
-    renderAuthor(root, content.author, content.createdAt);
-    const category = record(content.category);
-    if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
-    renderLabels(root, content.labels);
-    renderMarkdown(root, string(content.bodyHTML), string(content.body));
-    renderPoll(root, record(content.poll));
-    const reactions = document.createElement("div");
-    reactions.className = "reactions";
-    for (const [name, count] of Object.entries(state?.reactions ?? {})) {
-      const tag = appendText(reactions, "span", `${reactionEmoji(name)} ${String(count)}`, "tag");
-      tag.title = reactionLabel(name);
-      if (viewerReacted(content, name)) tag.classList.add("selected");
-    }
-    root.append(reactions);
-    const controls = document.createElement("div");
-    controls.className = "controls";
-    controls.append(actionButton(
-      `▲ ${String(state?.upvotes ?? 0)}`,
-      () => upvote(key),
+  if (showFirstPost) renderAuthor(root, content.author, content.createdAt);
+  const category = record(content.category);
+  if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
+  renderLabels(root, content.labels);
+  if (showFirstPost) renderMarkdown(root, string(content.bodyHTML), string(content.body));
+  renderPoll(root, record(content.poll));
+  const reactions = document.createElement("div");
+  reactions.className = "reactions";
+  for (const name of reactionTypes) {
+    reactions.append(subjectReactionButton(
+      string(content.id), name, state?.reactions?.[name] ?? 0, viewerReacted(content, name),
     ));
-    root.append(controls);
-    const url = string(content.url);
-    if (url && githubMode !== "hidden") {
-      const link = document.createElement("a");
-      link.href = url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "View discussion on GitHub";
-      root.append(link);
+  }
+  root.append(reactions);
+  const controls = document.createElement("div");
+  controls.className = "controls";
+  controls.append(subjectUpvoteButton(
+    string(content.id), state?.upvotes ?? 0, state?.viewerHasUpvoted === true,
+  ));
+  root.append(controls);
+  const url = string(content.url);
+  if (url && githubMode !== "hidden") {
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "View discussion on GitHub";
+    root.append(link);
+  }
+  const commentsContainer = record(content.comments);
+  const comments = commentsContainer?.nodes;
+  if (Array.isArray(comments)) {
+    appendText(root, "h3", `${String(integer(commentsContainer?.totalCount))} comments`);
+    for (const comment of comments) {
+      const value = record(comment);
+      if (value) root.append(renderComment(key, value, 0));
     }
-    const comments = record(content.comments)?.nodes;
-    if (Array.isArray(comments)) {
-      appendText(root, "h3", `${String(comments.length)} comments`);
-      for (const comment of comments) {
-        const value = record(comment);
-        if (value) root.append(renderComment(key, value, 0));
-      }
-    }
+  }
 }
 
 async function upvote(key: string): Promise<void> {
@@ -239,13 +264,57 @@ async function upvote(key: string): Promise<void> {
       resourceUrl.hash = "";
       await client.ensure({ key, title: key, url: resourceUrl.href }, token.creationGrant);
     }
-    await client.toggleUpvote(key, token);
+    const result = await client.toggleUpvote(key, token);
+    const override = counterOverride(key);
+    override.upvotes = result.count;
+    override.viewerHasUpvoted = result.viewerHasUpvoted;
     authenticationStatus.refresh();
     status.textContent = `Updated ${key}.`;
     await render();
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Unable to upvote.";
   }
+}
+
+function counterOverride(key: string): {
+  upvotes?: number;
+  viewerHasUpvoted?: boolean;
+  reactions: Map<Reaction, { count: number; selected: boolean }>;
+} {
+  const existing = counterOverrides.get(key);
+  if (existing) return existing;
+  const created = { reactions: new Map<Reaction, { count: number; selected: boolean }>() };
+  counterOverrides.set(key, created);
+  return created;
+}
+
+function applyCounterOverrides(
+  source: ReadonlyMap<string, ReactionState>,
+): ReadonlyMap<string, ReactionState> {
+  const result = new Map(source);
+  for (const [key, override] of counterOverrides) {
+    const state = result.get(key);
+    if (!state) continue;
+    const reactions = { ...state.reactions };
+    for (const [reaction, value] of override.reactions) reactions[reaction] = value.count;
+    result.set(key, {
+      ...state,
+      ...(override.upvotes === undefined ? {} : { upvotes: override.upvotes }),
+      ...(override.viewerHasUpvoted === undefined
+        ? {} : { viewerHasUpvoted: override.viewerHasUpvoted, viewerKnown: true }),
+      reactions,
+    });
+    if (state.id) {
+      const viewer = cardViewerStates.get(state.id) ?? { reactions: new Set<Reaction>() };
+      const selected = new Set(viewer.reactions);
+      for (const [reaction, value] of override.reactions) {
+        if (value.selected) selected.add(reaction);
+        else selected.delete(reaction);
+      }
+      cardViewerStates.set(state.id, { ...viewer, reactions: selected });
+    }
+  }
+  return result;
 }
 
 function actionButton(label: string, action: () => Promise<void>): HTMLButtonElement {
@@ -273,11 +342,26 @@ function renderPoll(parent: HTMLElement, poll: Record<string, unknown> | null): 
   for (const option of options) {
     const value = record(option);
     if (!value) continue;
-    const label = document.createElement("div");
-    label.className = "poll-option";
-    label.textContent = `${string(value.option)}: ${String(integer(value.totalVoteCount))} votes`;
-    if (value.viewerHasVoted === true) label.classList.add("selected");
-    parent.append(label);
+    let selected = value.viewerHasVoted === true;
+    let count = integer(value.totalVoteCount);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "poll-option";
+    const refresh = (): void => {
+      button.textContent = `${string(value.option)}: ${String(count)} votes`;
+      button.setAttribute("aria-pressed", String(selected));
+    };
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void authenticateAndRun(async (token) => {
+        const result = await setPollVote(token, string(value.id), !selected);
+        selected = result.viewerHasVoted;
+        count = result.count;
+        refresh();
+      }).finally(() => { button.disabled = false; });
+    });
+    refresh();
+    parent.append(button);
   }
 }
 
@@ -293,7 +377,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   renderAuthor(article, comment.author, comment.createdAt);
   if (comment.isMinimized === true) appendText(article, "p", "This comment was minimized.");
   else renderMarkdown(article, string(comment.bodyHTML), string(comment.body));
-  if (comment.isAnswer === true) appendText(article, "span", "Accepted answer", "tag");
+  if (comment.isAnswer === true) appendText(article, "span", "✓ Accepted answer", "tag accepted");
   const association = string(comment.authorAssociation);
   if (["OWNER", "MEMBER", "COLLABORATOR"].includes(association)) {
     appendText(article, "span", association.toLowerCase(), "tag");
@@ -311,23 +395,31 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     article.append(reply);
   }
   const groups = comment.reactionGroups;
+  const groupMap = new Map<Reaction, Record<string, unknown>>();
   if (Array.isArray(groups)) {
     for (const group of groups) {
       const value = record(group);
-      if (!value) continue;
-      const tag = appendText(
-        article,
-        "span",
-        `${reactionEmoji(string(value.content))} ${String(integer(record(value.reactors)?.totalCount))}`,
-        "tag",
-      );
-      tag.title = reactionLabel(string(value.content));
-      if (value.viewerHasReacted === true) tag.classList.add("selected");
+      if (value) groupMap.set(string(value.content) as Reaction, value);
     }
   }
+  if (typeof comment.id === "string") {
+    const controls = document.createElement("div");
+    controls.className = "comment-controls";
+    for (const reaction of reactionTypes) {
+      const value = groupMap.get(reaction);
+      controls.append(subjectReactionButton(
+        comment.id,
+        reaction,
+        integer(record(value?.reactors)?.totalCount),
+        value?.viewerHasReacted === true,
+      ));
+    }
+    article.append(controls);
+  }
   if (typeof comment.upvoteCount === "number") {
-    const upvotes = appendText(article, "span", `Upvotes: ${String(comment.upvoteCount)}`, "tag");
-    if (comment.viewerHasUpvoted === true) upvotes.classList.add("selected");
+    article.append(subjectUpvoteButton(
+      string(comment.id), comment.upvoteCount, comment.viewerHasUpvoted === true,
+    ));
   }
   const replies = record(comment.replies)?.nodes;
   if (Array.isArray(replies)) {
@@ -337,6 +429,78 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     }
   }
   return article;
+}
+
+function subjectReactionButton(
+  subjectId: string,
+  reaction: Reaction,
+  initialCount: number,
+  initialSelected: boolean,
+): HTMLButtonElement {
+  let selected = initialSelected;
+  let count = initialCount;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reaction-control";
+  const refresh = (): void => {
+    button.textContent = `${reactionEmoji(reaction)} ${String(count)}`;
+    button.title = reactionLabel(reaction);
+    button.setAttribute("aria-pressed", String(selected));
+  };
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    void authenticateAndRun(async (token) => {
+      const result = await setReaction(token, subjectId, reaction, !selected);
+      selected = result.viewerHasReacted;
+      count = result.count;
+      refresh();
+    }).finally(() => { button.disabled = false; });
+  });
+  refresh();
+  return button;
+}
+
+function subjectUpvoteButton(
+  subjectId: string,
+  initialCount: number,
+  initialSelected: boolean,
+): HTMLButtonElement {
+  let selected = initialSelected;
+  let count = initialCount;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "upvote-control";
+  const refresh = (): void => {
+    button.textContent = `▲ ${String(count)}`;
+    button.title = selected ? "Remove upvote" : "Upvote";
+    button.setAttribute("aria-pressed", String(selected));
+  };
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    void authenticateAndRun(async (token) => {
+      const result = await toggleSubjectUpvote(token, subjectId, selected);
+      selected = result.viewerHasUpvoted;
+      count = result.count;
+      refresh();
+    }).finally(() => { button.disabled = false; });
+  });
+  refresh();
+  return button;
+}
+
+async function authenticateAndRun(
+  action: (token: NonNullable<ReturnType<Authentication["token"]>>) => Promise<void>,
+): Promise<void> {
+  try {
+    const token = authentication.token() ?? await authentication.authenticate();
+    authenticationStatus.refresh();
+    updateAuthenticationUi();
+    await action(token);
+    status.textContent = "Updated on GitHub.";
+  } catch (error) {
+    console.error("GitHub interaction failed", error);
+    status.textContent = error instanceof Error ? error.message : "GitHub interaction failed.";
+  }
 }
 
 function renderMissingDiscussion(

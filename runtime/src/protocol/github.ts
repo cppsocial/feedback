@@ -16,6 +16,16 @@ export interface UpvoteResult {
   viewerHasUpvoted: boolean;
 }
 
+export interface ReactionResult {
+  count: number;
+  viewerHasReacted: boolean;
+}
+
+export interface PollVoteResult {
+  count: number;
+  viewerHasVoted: boolean;
+}
+
 export interface ViewerSubjectState {
   viewerHasUpvoted?: boolean;
   viewerHasVoted?: boolean;
@@ -23,8 +33,14 @@ export interface ViewerSubjectState {
 }
 
 export class GitHubRequestError extends Error {
-  constructor(readonly status: number, readonly graphql = false) {
-    super(graphql ? "GitHub rejected the GraphQL operation" : `GitHub request failed with status ${String(status)}`);
+  constructor(
+    readonly status: number,
+    readonly graphql = false,
+    readonly details: readonly string[] = [],
+  ) {
+    super(graphql
+      ? `GitHub rejected the GraphQL operation${details.length ? `: ${details.join("; ")}` : ""}`
+      : `GitHub request failed with status ${String(status)}`);
   }
 }
 
@@ -76,7 +92,9 @@ export async function githubGraphql(
   if (!body || typeof body !== "object") throw new TypeError("Invalid GitHub response");
   const result = body as GraphQLResponse;
   if (Array.isArray(result.errors) && result.errors.length > 0) {
-    throw new GitHubRequestError(response.status, true);
+    const details = result.errors.slice(0, 5).map(graphqlErrorSummary);
+    console.error("GitHub GraphQL operation failed", details);
+    throw new GitHubRequestError(response.status, true, details);
   }
   return result;
 }
@@ -174,11 +192,38 @@ export async function setReaction(
   active: boolean,
   fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
   signal?: AbortSignal,
-): Promise<void> {
-  await githubGraphql(
+): Promise<ReactionResult> {
+  const operation = active ? "add" : "remove";
+  const response = await githubGraphql(
     fetch, token, reactionMutation,
     { id: subjectId, content: reaction, remove: !active, add: active }, signal,
   );
+  const mutation = response.data?.[operation];
+  const subject = mutation && typeof mutation === "object"
+    ? (mutation as { subject?: unknown }).subject : undefined;
+  const groups = subject && typeof subject === "object"
+    ? (subject as { reactionGroups?: unknown }).reactionGroups : undefined;
+  if (!Array.isArray(groups)) throw new TypeError("Invalid GitHub response");
+  const selected = groups.find((group) => group && typeof group === "object" &&
+    (group as { content?: unknown }).content === reaction) as Record<string, unknown> | undefined;
+  const count = selected && typeof selected.reactors === "object" && selected.reactors
+    ? (selected.reactors as { totalCount?: unknown }).totalCount : undefined;
+  if (!Number.isSafeInteger(count) || (count as number) < 0 ||
+      typeof selected?.viewerHasReacted !== "boolean") {
+    throw new TypeError("Invalid GitHub response");
+  }
+  return { count: count as number, viewerHasReacted: selected.viewerHasReacted };
+}
+
+function graphqlErrorSummary(value: unknown): string {
+  if (!value || typeof value !== "object") return "Unknown GraphQL error";
+  const error = value as { type?: unknown; message?: unknown; path?: unknown };
+  const type = typeof error.type === "string" ? error.type : "GraphQL error";
+  const message = typeof error.message === "string" ? error.message.slice(0, 300) : "";
+  const path = Array.isArray(error.path)
+    ? error.path.filter((item): item is string | number => typeof item === "string" || typeof item === "number").join(".")
+    : "";
+  return [type, path, message].filter(Boolean).join(" — ");
 }
 
 export async function setPollVote(
@@ -187,10 +232,21 @@ export async function setPollVote(
   active: boolean,
   fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
   signal?: AbortSignal,
-): Promise<void> {
-  await githubGraphql(
+): Promise<PollVoteResult> {
+  const operation = active ? "add" : "remove";
+  const response = await githubGraphql(
     fetch, token, pollVoteMutation, { id: optionId, remove: !active, add: active }, signal,
   );
+  const mutation = response.data?.[operation];
+  const option = mutation && typeof mutation === "object"
+    ? (mutation as { pollOption?: unknown }).pollOption : undefined;
+  if (!option || typeof option !== "object") throw new TypeError("Invalid GitHub response");
+  const value = option as { totalVoteCount?: unknown; viewerHasVoted?: unknown };
+  if (!Number.isSafeInteger(value.totalVoteCount) || (value.totalVoteCount as number) < 0 ||
+      typeof value.viewerHasVoted !== "boolean") {
+    throw new TypeError("Invalid GitHub response");
+  }
+  return { count: value.totalVoteCount as number, viewerHasVoted: value.viewerHasVoted };
 }
 
 export async function setAnswer(

@@ -29,6 +29,7 @@ export function createAuthenticationStatus(
   dot.className = "feedback-authentication-dot";
   dot.setAttribute("aria-hidden", "true");
   const identity = document.createElement("span");
+  identity.className = "feedback-authentication-identity";
   element.append(dot, identity, action);
   options.mount.replaceChildren(element);
 

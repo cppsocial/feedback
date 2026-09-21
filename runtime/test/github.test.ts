@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { toggleUpvote, viewerSubjectStates, viewerUpvotes } from "../src/protocol/github.js";
+import {
+  GitHubRequestError,
+  setPollVote,
+  setReaction,
+  toggleUpvote,
+  viewerSubjectStates,
+  viewerUpvotes,
+} from "../src/protocol/github.js";
 
 const token = { value: "ghu_user", expiresAt: 2_000_000_000, creationGrant: "grant" };
 
@@ -42,13 +49,38 @@ void test("viewer upvotes are queried in one nodes batch", async () => {
 
 void test("successful HTTP responses with GraphQL errors are rejected", async () => {
   const fetch = (): Promise<Response> => Promise.resolve(
-    Response.json({ errors: [{ type: "FORBIDDEN" }] }),
+    Response.json({ errors: [{ type: "FORBIDDEN", path: ["add"], message: "No access" }] }),
   );
 
   await assert.rejects(
     viewerUpvotes(token, ["D_1"], fetch),
-    /rejected the GraphQL operation/,
+    (error: unknown) => error instanceof GitHubRequestError &&
+      error.details[0] === "FORBIDDEN — add — No access",
   );
+});
+
+void test("reaction mutations return the updated count and viewer selection", async () => {
+  const fetch = (): Promise<Response> => Promise.resolve(Response.json({ data: {
+    add: { subject: { reactionGroups: [
+      { content: "HEART", reactors: { totalCount: 4 }, viewerHasReacted: true },
+    ] } },
+  } }));
+
+  assert.deepEqual(await setReaction(token, "DC_1", "HEART", true, fetch), {
+    count: 4,
+    viewerHasReacted: true,
+  });
+});
+
+void test("poll mutations return the updated count and viewer selection", async () => {
+  const fetch = (): Promise<Response> => Promise.resolve(Response.json({ data: {
+    remove: { pollOption: { totalVoteCount: 8, viewerHasVoted: false } },
+  } }));
+
+  assert.deepEqual(await setPollVote(token, "DPO_1", false, fetch), {
+    count: 8,
+    viewerHasVoted: false,
+  });
 });
 
 void test("viewer subject state batches reactions, votes, and chunks at 100 IDs", async () => {

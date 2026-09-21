@@ -30,4 +30,10 @@ export {
   viewerUpvotes,
   viewerSubjectStates,
 } from "./protocol/github.js";
-export type { Reaction, UpvoteResult, ViewerSubjectState } from "./protocol/github.js";
+export type {
+  PollVoteResult,
+  Reaction,
+  ReactionResult,
+  UpvoteResult,
+  ViewerSubjectState,
+} from "./protocol/github.js";

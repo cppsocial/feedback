@@ -54,6 +54,8 @@ export interface AccessToken {
   expiresAt: number;
   creationGrant: string;
   viewerId?: string;
+  viewerLogin?: string;
+  viewerAvatarUrl?: string;
 }
 
 export interface EnsuredDiscussion {

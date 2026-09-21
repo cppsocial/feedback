@@ -7,6 +7,8 @@ interface StoredToken {
   expiresAt: number;
   creationGrant: string;
   viewerId: string;
+  viewerLogin: string;
+  viewerAvatarUrl: string;
 }
 
 export class SessionTokenStore {
@@ -32,6 +34,10 @@ export class SessionTokenStore {
         typeof parsed.creationGrant !== "string" ||
         typeof parsed.viewerId !== "string" ||
         parsed.viewerId.length === 0 ||
+        typeof parsed.viewerLogin !== "string" ||
+        parsed.viewerLogin.length === 0 ||
+        typeof parsed.viewerAvatarUrl !== "string" ||
+        !parsed.viewerAvatarUrl.startsWith("https://") ||
         (parsed.expiresAt ?? 0) * 1000 <= this.#clock()
       ) {
         this.clear();
@@ -42,6 +48,8 @@ export class SessionTokenStore {
         expiresAt: parsed.expiresAt,
         creationGrant: parsed.creationGrant,
         viewerId: parsed.viewerId,
+        viewerLogin: parsed.viewerLogin,
+        viewerAvatarUrl: parsed.viewerAvatarUrl,
       } as AccessToken;
     } catch {
       this.clear();

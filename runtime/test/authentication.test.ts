@@ -48,7 +48,13 @@ void test("authentication verifies the callback and GitHub viewer before storing
     },
   };
   const githubFetch = (): Promise<Response> => Promise.resolve(Response.json({
-    data: { viewer: { id: "U_1", login: "octocat" } },
+    data: {
+      viewer: {
+        id: "U_1",
+        login: "octocat",
+        avatarUrl: "https://avatars.githubusercontent.com/u/1",
+      },
+    },
   }));
   const authentication = new Authentication({
     site: "cpp-social",
@@ -88,6 +94,7 @@ void test("authentication verifies the callback and GitHub viewer before storing
   const token = await pending;
 
   assert.equal(token.value, "ghu_user");
+  assert.equal(token.viewerLogin, "octocat");
   assert.equal(authentication.token()?.value, "ghu_user");
   assert.equal(closed, true);
   assert.equal([...values.values()].some((value) => value.includes("temporary-code")), false);

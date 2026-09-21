@@ -18,7 +18,9 @@ query FeedbackDiscussion(
       number
       title
       body
-      author @include(if: $includeAuthors) { id login avatarUrl }
+      bodyHTML
+      createdAt
+      author @include(if: $includeAuthors) { login avatarUrl ... on User { id } }
       authorAssociation @include(if: $includeAuthors)
       url @include(if: $includeLink)
       repository { id }
@@ -36,9 +38,9 @@ query FeedbackDiscussion(
         totalCount
         pageInfo { hasNextPage endCursor }
         nodes {
-          id body
+          id body bodyHTML
           url @include(if: $includeLink)
-          author @include(if: $includeAuthors) { id login avatarUrl }
+          author @include(if: $includeAuthors) { login avatarUrl ... on User { id } }
           authorAssociation @include(if: $includeAuthors)
           createdAt updatedAt deletedAt
           isMinimized @include(if: $includeModeration)
@@ -50,9 +52,9 @@ query FeedbackDiscussion(
             totalCount
             pageInfo { hasNextPage endCursor }
             nodes {
-              id body
+              id body bodyHTML
               url @include(if: $includeLink)
-              author @include(if: $includeAuthors) { id login avatarUrl }
+              author @include(if: $includeAuthors) { login avatarUrl ... on User { id } }
               authorAssociation @include(if: $includeAuthors)
               createdAt updatedAt deletedAt
               isMinimized @include(if: $includeModeration)

@@ -2,5 +2,6 @@ query FeedbackViewer {
   viewer {
     id
     login
+    avatarUrl
   }
 }

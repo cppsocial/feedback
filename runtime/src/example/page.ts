@@ -50,7 +50,9 @@ void render();
 
 async function submitComment(): Promise<void> {
   const textarea = required("comment-body") as HTMLTextAreaElement;
+  const submit = required("comment-submit") as HTMLButtonElement;
   if (!textarea.value.trim()) return;
+  submit.disabled = true;
   try {
     let token = authentication.token();
     token ??= await authentication.authenticate();
@@ -61,11 +63,14 @@ async function submitComment(): Promise<void> {
     textarea.value = "";
     replyTo = undefined;
     required("clear-reply").hidden = true;
-    status.textContent = "Comment added. Refreshing…";
+    status.textContent = "Comment posted. Refreshing the thread…";
     await render();
+    status.textContent = "Comment posted.";
   } catch (error) {
     if (error instanceof FeedbackError && error.status === 401) authentication.clear();
     status.textContent = error instanceof Error ? error.message : "Unable to add comment.";
+  } finally {
+    submit.disabled = false;
   }
 }
 
@@ -83,7 +88,7 @@ async function render(): Promise<void> {
     renderRankingCards(states);
     const existingKeys = keys.filter((key) => states.get(key)?.id);
     const root = required("thread");
-    root.replaceChildren();
+    const rendered = document.createDocumentFragment();
     let contents = new Map<string, { discussion: Record<string, unknown> }>();
     let contentError: unknown;
     try {
@@ -95,7 +100,7 @@ async function render(): Promise<void> {
     for (const key of keys) {
       const article = document.createElement("article");
       article.className = "discussion";
-      root.append(article);
+      rendered.append(article);
       const state = states.get(key);
       if (!state?.id) {
         renderMissingDiscussion(article, key, state);
@@ -114,6 +119,7 @@ async function render(): Promise<void> {
         appendText(article, "p", error instanceof FeedbackError ? error.code : "Unable to load thread.");
       }
     }
+    root.replaceChildren(rendered);
     status.textContent = contentError === undefined ? "Ready." : "Counters loaded; discussions unavailable.";
   } catch (error) {
     status.textContent = error instanceof FeedbackError ? error.code : "Unable to load discussions.";
@@ -129,7 +135,7 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
     card.className = "ranking-card";
     appendText(card, "h3", key);
     const button = actionButton(
-      `${state?.viewerHasUpvoted === true ? "Remove upvote" : "Upvote"} · ${String(state?.upvotes ?? 0)}`,
+      `▲ ${String(state?.upvotes ?? 0)}`,
       () => upvote(key),
     );
     button.setAttribute("aria-pressed", String(state?.viewerHasUpvoted === true));
@@ -141,10 +147,11 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
         ? cardViewerStates.get(state.id)?.reactions.has(name as Reaction) === true
         : false;
       const reaction = actionButton(
-        `${name}: ${String(count)}`,
+        `${reactionEmoji(name)} ${String(count)}`,
         () => react(key, name as Reaction, selected),
       );
       reaction.className = "reaction-control";
+      reaction.title = reactionLabel(name);
       reaction.setAttribute("aria-pressed", String(selected));
       reactions.append(reaction);
     }
@@ -182,30 +189,24 @@ function renderDiscussion(
 ): void {
   appendText(root, "h2", string(content.title) || key);
   if (isViewer(content.author)) root.classList.add("own-post");
+    renderAuthor(root, content.author, content.createdAt);
     const category = record(content.category);
     if (category) appendText(root, "span", `Category: ${string(category.name)}`, "tag");
     renderLabels(root, content.labels);
-    appendText(root, "p", string(content.body));
-    if (state) {
-      appendText(
-        root,
-        "span",
-        `Upvotes: ${String(state.upvotes)}`,
-        "tag",
-      );
-    }
+    renderMarkdown(root, string(content.bodyHTML), string(content.body));
     renderPoll(root, record(content.poll));
     const reactions = document.createElement("div");
     reactions.className = "reactions";
     for (const [name, count] of Object.entries(state?.reactions ?? {})) {
-      const tag = appendText(reactions, "span", `${name}: ${String(count)}`, "tag");
+      const tag = appendText(reactions, "span", `${reactionEmoji(name)} ${String(count)}`, "tag");
+      tag.title = reactionLabel(name);
       if (viewerReacted(content, name)) tag.classList.add("selected");
     }
     root.append(reactions);
     const controls = document.createElement("div");
     controls.className = "controls";
     controls.append(actionButton(
-      state?.viewerHasUpvoted === true ? "Remove upvote" : "Upvote",
+      `▲ ${String(state?.upvotes ?? 0)}`,
       () => upvote(key),
     ));
     root.append(controls);
@@ -289,7 +290,9 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   }
   if (comment.isAnswer === true) article.classList.add("answer");
   if (isViewer(comment.author)) article.classList.add("own-post");
-  appendText(article, "p", comment.isMinimized === true ? "This comment was minimized." : string(comment.body));
+  renderAuthor(article, comment.author, comment.createdAt);
+  if (comment.isMinimized === true) appendText(article, "p", "This comment was minimized.");
+  else renderMarkdown(article, string(comment.bodyHTML), string(comment.body));
   if (comment.isAnswer === true) appendText(article, "span", "Accepted answer", "tag");
   const association = string(comment.authorAssociation);
   if (["OWNER", "MEMBER", "COLLABORATOR"].includes(association)) {
@@ -315,9 +318,10 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
       const tag = appendText(
         article,
         "span",
-        `${string(value.content)}: ${String(integer(record(value.reactors)?.totalCount))}`,
+        `${reactionEmoji(string(value.content))} ${String(integer(record(value.reactors)?.totalCount))}`,
         "tag",
       );
+      tag.title = reactionLabel(string(value.content));
       if (value.viewerHasReacted === true) tag.classList.add("selected");
     }
   }
@@ -342,11 +346,12 @@ function renderMissingDiscussion(
 ): void {
   appendText(root, "h2", key);
   appendText(root, "p", "No GitHub discussion exists yet. Anonymous counters still resolve to zero.");
-  appendText(root, "span", `Upvotes: ${String(state?.upvotes ?? 0)}`, "tag");
+  appendText(root, "span", `▲ ${String(state?.upvotes ?? 0)}`, "tag");
   const reactions = document.createElement("div");
   reactions.className = "reactions";
   for (const [name, count] of Object.entries(state?.reactions ?? {})) {
-    appendText(reactions, "span", `${name}: ${String(count)}`, "tag");
+    const tag = appendText(reactions, "span", `${reactionEmoji(name)} ${String(count)}`, "tag");
+    tag.title = reactionLabel(name);
   }
   root.append(reactions);
   const button = actionButton("Sign in and create with first upvote", () => upvote(key));
@@ -401,6 +406,93 @@ function viewerReacted(subject: Record<string, unknown>, reaction: string): bool
     const value = record(group);
     return string(value?.content) === reaction && value?.viewerHasReacted === true;
   });
+}
+
+function renderAuthor(parent: Element, authorValue: unknown, createdAt: unknown): void {
+  const author = record(authorValue);
+  if (!author) return;
+  const header = document.createElement("header");
+  header.className = "comment-author";
+  const avatarUrl = string(author.avatarUrl);
+  if (avatarUrl) {
+    const avatar = document.createElement("img");
+    avatar.src = avatarUrl;
+    avatar.alt = "";
+    avatar.width = 32;
+    avatar.height = 32;
+    avatar.loading = "lazy";
+    header.append(avatar);
+  }
+  appendText(header, "strong", string(author.login) || "ghost");
+  const timestamp = string(createdAt);
+  if (timestamp) appendText(header, "time", new Date(timestamp).toLocaleString());
+  parent.append(header);
+}
+
+function renderMarkdown(parent: Element, html: string, fallback: string): void {
+  const body = document.createElement("div");
+  body.className = "markdown-body";
+  if (!html) {
+    body.textContent = fallback;
+    parent.append(body);
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  sanitizeGithubHtml(template.content);
+  body.append(template.content);
+  parent.append(body);
+}
+
+function sanitizeGithubHtml(root: DocumentFragment): void {
+  const allowed = new Set([
+    "A", "BLOCKQUOTE", "BR", "CODE", "DEL", "DETAILS", "DIV", "EM", "H1", "H2", "H3",
+    "H4", "H5", "H6", "HR", "IMG", "KBD", "LI", "OL", "P", "PRE", "S", "SPAN",
+    "STRONG", "SUMMARY", "TABLE", "TBODY", "TD", "TH", "THEAD", "TR", "UL",
+  ]);
+  for (const element of [...root.querySelectorAll("*")]) {
+    if (!allowed.has(element.tagName)) {
+      element.replaceWith(document.createTextNode(element.textContent));
+      continue;
+    }
+    for (const attribute of [...element.attributes]) {
+      if (!["alt", "class", "href", "src", "title"].includes(attribute.name)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+    if (element instanceof HTMLAnchorElement) {
+      if (!safeUrl(element.href, true)) element.removeAttribute("href");
+      element.rel = "noopener noreferrer";
+      element.target = "_blank";
+    }
+    if (element instanceof HTMLImageElement) {
+      if (!safeUrl(element.src, false)) element.remove();
+      else element.loading = "lazy";
+    }
+  }
+}
+
+function safeUrl(value: string, allowFragment: boolean): boolean {
+  if (allowFragment && value.startsWith("#")) return true;
+  try {
+    return new URL(value, location.href).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function reactionEmoji(reaction: string): string {
+  return ({
+    THUMBS_UP: "👍", THUMBS_DOWN: "👎", LAUGH: "😄", HOORAY: "🎉",
+    CONFUSED: "😕", HEART: "❤️", ROCKET: "🚀", EYES: "👀",
+  } as Record<string, string>)[reaction] ?? "•";
+}
+
+function reactionLabel(reaction: string): string {
+  return ({
+    THUMBS_UP: "+1", THUMBS_DOWN: "-1", LAUGH: "Laugh", HOORAY: "Hooray",
+    CONFUSED: "Confused", HEART: "Heart", ROCKET: "Rocket", EYES: "Eyes",
+  } as Record<string, string>)[reaction] ?? reaction;
 }
 
 function appendText(parent: Element, tag: string, text: string, className?: string): HTMLElement {

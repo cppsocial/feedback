@@ -157,6 +157,7 @@ async def test_deleted_comment_content_is_never_returned(config: Config, tmp_pat
                                     "id": "DC_deleted",
                                     "deletedAt": "2026-01-01T00:00:00Z",
                                     "body": "must not escape",
+                                    "bodyHTML": "<p>must not escape</p>",
                                     "url": "https://github.test/leak",
                                     "author": {"login": "former-author"},
                                     "replies": {"nodes": []},

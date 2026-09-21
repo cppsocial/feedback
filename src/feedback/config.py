@@ -19,7 +19,9 @@ class ConfigError(ValueError):
 
 _SITE_ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z")
 _MAPPINGS = frozenset({"key", "title", "url", "pathname", "custom", "number"})
-_REACTIONS = frozenset({"LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"})
+_REACTIONS = frozenset(
+    {"THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"}
+)
 _INTENTS = frozenset(
     {
         "upvotes",

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta name="referrer" content="no-referrer">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://feedback-api.cpp.social https://api.github.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://avatars.githubusercontent.com https://user-images.githubusercontent.com https://github.com data:; connect-src https://feedback-api.cpp.social https://api.github.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
     <link rel="stylesheet" href="/example/style.css">
     <title>Feedback integration example</title>
   </head>
@@ -21,7 +21,11 @@
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">
         <label>Thread <select id="comment-key"></select></label>
-        <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Add a comment"></textarea>
+        <div class="comment-box">
+          <div class="comment-box-header">Write</div>
+          <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Leave a comment"></textarea>
+          <small>Markdown is supported. Content is rendered using GitHub's sanitized Markdown HTML.</small>
+        </div>
         <button id="comment-submit" type="submit">Sign in and comment</button>
         <button id="clear-reply" type="button" hidden>Cancel reply</button>
       </form>

@@ -96,8 +96,13 @@ export class Authentication {
         signal,
       );
       const token = await this.#service.exchange(code, authorization.state, verifier, signal);
-      const viewerId = await validateViewer(this.#fetch, token.value, signal);
-      const authenticated = { ...token, viewerId };
+      const viewer = await validateViewer(this.#fetch, token.value, signal);
+      const authenticated = {
+        ...token,
+        viewerId: viewer.id,
+        viewerLogin: viewer.login,
+        viewerAvatarUrl: viewer.avatarUrl,
+      };
       this.#tokens.set(authenticated);
       return authenticated;
     } catch (error) {
@@ -172,7 +177,7 @@ async function validateViewer(
   fetch: typeof globalThis.fetch,
   token: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<{ id: string; login: string; avatarUrl: string }> {
   const init: RequestInit = {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -182,20 +187,21 @@ async function validateViewer(
   const response = await fetch("https://api.github.com/graphql", init);
   if (!response.ok) throw new AuthenticationError("token_invalid");
   const body: unknown = await response.json();
-  const viewerId = viewer(body);
-  if (viewerId === null) throw new AuthenticationError("token_invalid");
-  return viewerId;
+  const result = viewer(body);
+  if (result === null) throw new AuthenticationError("token_invalid");
+  return result;
 }
 
-function viewer(value: unknown): string | null {
+function viewer(value: unknown): { id: string; login: string; avatarUrl: string } | null {
   if (!value || typeof value !== "object") return null;
   const data = (value as { data?: unknown }).data;
   if (!data || typeof data !== "object") return null;
   const viewer = (data as { viewer?: unknown }).viewer;
   if (!viewer || typeof viewer !== "object") return null;
-  const candidate = viewer as { id?: unknown; login?: unknown };
-  return typeof candidate.id === "string" && typeof candidate.login === "string"
-    ? candidate.id
+  const candidate = viewer as { id?: unknown; login?: unknown; avatarUrl?: unknown };
+  return typeof candidate.id === "string" && typeof candidate.login === "string" &&
+    typeof candidate.avatarUrl === "string"
+    ? { id: candidate.id, login: candidate.login, avatarUrl: candidate.avatarUrl }
     : null;
 }
 

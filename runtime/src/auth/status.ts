@@ -24,8 +24,12 @@ export function createAuthenticationStatus(
   element.className = "feedback-authentication-status";
   const action = document.createElement("button");
   action.type = "button";
-  action.className = "feedback-authentication-dot";
-  element.append(action);
+  action.className = "feedback-authentication-action";
+  const dot = document.createElement("span");
+  dot.className = "feedback-authentication-dot";
+  dot.setAttribute("aria-hidden", "true");
+  const identity = document.createElement("span");
+  element.append(dot, identity, action);
   options.mount.replaceChildren(element);
 
   const refresh = (): void => {
@@ -34,9 +38,28 @@ export function createAuthenticationStatus(
     const status = signedIn
       ? (options.signedInLabel?.(token.viewerId) ?? "Authenticated")
       : (options.signedOutLabel ?? "Not authenticated");
-    action.classList.toggle("authenticated", signedIn);
-    action.title = `${status}. ${signedIn ? (options.logoutLabel ?? "Log out") : (options.loginLabel ?? "Log in")}`;
-    action.setAttribute("aria-label", action.title);
+    dot.classList.toggle("authenticated", signedIn);
+    identity.replaceChildren();
+    if (signedIn) {
+      const profile = document.createElement("a");
+      profile.href = `https://github.com/${encodeURIComponent(token.viewerLogin ?? "")}`;
+      profile.target = "_blank";
+      profile.rel = "noopener noreferrer";
+      if (token.viewerAvatarUrl) {
+        const avatar = document.createElement("img");
+        avatar.src = token.viewerAvatarUrl;
+        avatar.alt = "";
+        avatar.width = 24;
+        avatar.height = 24;
+        profile.append(avatar);
+      }
+      profile.append(document.createTextNode(token.viewerLogin ?? status));
+      identity.append(profile);
+    }
+    action.textContent = signedIn
+      ? (options.logoutLabel ?? "Log out")
+      : (options.loginLabel ?? "Log in with GitHub");
+    action.setAttribute("aria-label", `${status}. ${action.textContent}`);
     action.onclick = () => {
       if (options.authentication.token() !== null) {
         options.authentication.clear();

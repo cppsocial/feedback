@@ -141,7 +141,7 @@ def _without_deleted_content(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, dict):
             return
         if value.get("deletedAt") is not None:
-            for field in ("body", "url", "author", "reactionGroups"):
+            for field in ("body", "bodyHTML", "url", "author", "reactionGroups"):
                 value.pop(field, None)
         for child in value.values():
             scrub(child)

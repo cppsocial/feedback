@@ -19,7 +19,7 @@ repository_id = "R_kgDOUc9png"
 installation_id = 162105624
 default_category = "general"
 intents = ["upvotes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "comment_upvotes", "labels", "github_link"]
-reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
+reaction_counters = ["THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
 known_discussions = [
   { key = "feedback/example", id = "D_kwDOUc9pns4ApUHg", number = 1, category = "general", title = "feedback/example" },
   { key = "feedback/documentation", id = "D_kwDOUc9pns4ApVT9", number = 2, category = "general", title = "feedback/documentation" },

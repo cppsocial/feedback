@@ -22,22 +22,21 @@ export function createAuthenticationStatus(
 ): AuthenticationStatusController {
   const element = document.createElement("section");
   element.className = "feedback-authentication-status";
-  const message = document.createElement("span");
   const action = document.createElement("button");
   action.type = "button";
-  element.append(message, action);
+  action.className = "feedback-authentication-dot";
+  element.append(action);
   options.mount.replaceChildren(element);
 
   const refresh = (): void => {
     const token = options.authentication.token();
     const signedIn = token !== null;
-    message.textContent = signedIn
+    const status = signedIn
       ? (options.signedInLabel?.(token.viewerId) ?? "Authenticated")
       : (options.signedOutLabel ?? "Not authenticated");
-    action.textContent = signedIn
-      ? (options.logoutLabel ?? "Log out")
-      : (options.loginLabel ?? "Log in");
-    action.setAttribute("aria-label", action.textContent);
+    action.classList.toggle("authenticated", signedIn);
+    action.title = `${status}. ${signedIn ? (options.logoutLabel ?? "Log out") : (options.loginLabel ?? "Log in")}`;
+    action.setAttribute("aria-label", action.title);
     action.onclick = () => {
       if (options.authentication.token() !== null) {
         options.authentication.clear();
@@ -59,11 +58,7 @@ export function createAuthenticationStatus(
     };
   };
 
-  if (options.explanation) {
-    const explanation = document.createElement("small");
-    explanation.textContent = options.explanation;
-    element.insertBefore(explanation, message);
-  }
+  if (options.explanation) element.title = options.explanation;
   refresh();
   return { element, refresh };
 }

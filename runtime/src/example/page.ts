@@ -3,8 +3,8 @@ import type { ReactionState } from "../api/client.js";
 import { trustedOrigin } from "../auth/origin.js";
 import { Authentication } from "../auth/controller.js";
 import { createAuthenticationStatus } from "../auth/status.js";
-import { viewerSubjectStates } from "../protocol/github.js";
-import type { ViewerSubjectState } from "../protocol/github.js";
+import { setReaction, viewerSubjectStates } from "../protocol/github.js";
+import type { Reaction, ViewerSubjectState } from "../protocol/github.js";
 
 const parameters = new URLSearchParams(location.search);
 const site = parameters.get("site") ?? "feedback-cpp-social";
@@ -21,13 +21,14 @@ const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
+let cardViewerStates = new Map<string, ViewerSubjectState>();
 required("api-origin").textContent = apiOrigin;
 const authenticationStatus = createAuthenticationStatus({
   mount: required("authentication-status"),
   authentication,
   explanation: "Sign in is required to add comments or replies.",
   onError: (error) => { status.textContent = error instanceof Error ? error.message : "Authentication failed."; },
-  onChange: () => { void render(); },
+  onChange: () => { updateAuthenticationUi(); void render(); },
 });
 required("comment-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -44,6 +45,7 @@ for (const key of keys) {
   option.textContent = key;
   commentKey.append(option);
 }
+updateAuthenticationUi();
 void render();
 
 async function submitComment(): Promise<void> {
@@ -53,6 +55,7 @@ async function submitComment(): Promise<void> {
     let token = authentication.token();
     token ??= await authentication.authenticate();
     authenticationStatus.refresh();
+    updateAuthenticationUi();
     const key = replyTo?.key ?? commentKey.value;
     await client.addComment(key, textarea.value, token, replyTo?.id);
     textarea.value = "";
@@ -70,12 +73,26 @@ async function render(): Promise<void> {
   try {
     let states = await client.reactions(keys);
     const token = authentication.token();
-    if (token !== null) states = await client.syncViewerUpvotes(keys, token);
+    if (token !== null) {
+      states = await client.syncViewerUpvotes(keys, token);
+      const ids = [...states.values()].flatMap((state) => state.id ? [state.id] : []);
+      cardViewerStates = new Map(await viewerSubjectStates(token, ids));
+    } else {
+      cardViewerStates.clear();
+    }
+    renderRankingCards(states);
     const existingKeys = keys.filter((key) => states.get(key)?.id);
-    const contents = await client.discussionContents(existingKeys);
     const root = required("thread");
     root.replaceChildren();
-    await Promise.all(keys.map(async (key) => {
+    let contents = new Map<string, { discussion: Record<string, unknown> }>();
+    let contentError: unknown;
+    try {
+      contents = new Map(await client.discussionContents(existingKeys));
+      await addViewerState([...contents.values()].map((value) => value.discussion));
+    } catch (error) {
+      contentError = error;
+    }
+    for (const key of keys) {
       const article = document.createElement("article");
       article.className = "discussion";
       root.append(article);
@@ -86,18 +103,75 @@ async function render(): Promise<void> {
       }
       try {
         const payload = contents.get(key);
-        if (!payload) throw new Error("Missing discussion content");
-        await addViewerState(payload.discussion);
+        if (!payload) {
+          throw contentError instanceof Error
+            ? contentError
+            : new Error("Missing discussion content");
+        }
         renderDiscussion(article, key, payload.discussion, state);
       } catch (error) {
         appendText(article, "h2", key);
         appendText(article, "p", error instanceof FeedbackError ? error.code : "Unable to load thread.");
       }
-    }));
-    status.textContent = "Ready.";
+    }
+    status.textContent = contentError === undefined ? "Ready." : "Counters loaded; discussions unavailable.";
   } catch (error) {
     status.textContent = error instanceof FeedbackError ? error.code : "Unable to load discussions.";
   }
+}
+
+function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
+  const root = required("cards");
+  root.replaceChildren();
+  for (const key of keys) {
+    const state = states.get(key);
+    const card = document.createElement("article");
+    card.className = "ranking-card";
+    appendText(card, "h3", key);
+    const button = actionButton(
+      `${state?.viewerHasUpvoted === true ? "Remove upvote" : "Upvote"} · ${String(state?.upvotes ?? 0)}`,
+      () => upvote(key),
+    );
+    button.setAttribute("aria-pressed", String(state?.viewerHasUpvoted === true));
+    card.append(button);
+    const reactions = document.createElement("div");
+    reactions.className = "reactions";
+    for (const [name, count] of Object.entries(state?.reactions ?? {})) {
+      const selected = state?.id
+        ? cardViewerStates.get(state.id)?.reactions.has(name as Reaction) === true
+        : false;
+      const reaction = actionButton(
+        `${name}: ${String(count)}`,
+        () => react(key, name as Reaction, selected),
+      );
+      reaction.className = "reaction-control";
+      reaction.setAttribute("aria-pressed", String(selected));
+      reactions.append(reaction);
+    }
+    card.append(reactions);
+    if (!state?.id) appendText(card, "small", "No discussion yet; all counters are zero.");
+    root.append(card);
+  }
+}
+
+async function react(key: string, reaction: Reaction, selected: boolean): Promise<void> {
+  try {
+    const token = authentication.token() ?? await authentication.authenticate();
+    authenticationStatus.refresh();
+    updateAuthenticationUi();
+    const state = (await client.reactions([key])).get(key);
+    if (!state?.id) throw new Error("Create the discussion with an upvote before reacting.");
+    await setReaction(token, state.id, reaction, !selected);
+    status.textContent = `Updated ${reaction} on ${key}.`;
+    await render();
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : "Unable to react.";
+  }
+}
+
+function updateAuthenticationUi(): void {
+  const authenticated = authentication.token() !== null;
+  required("comment-submit").textContent = authenticated ? "Comment" : "Sign in and comment";
 }
 
 function renderDiscussion(
@@ -241,7 +315,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
       const tag = appendText(
         article,
         "span",
-        `${string(value.content)}: ${String(integer(record(value.users)?.totalCount))}`,
+        `${string(value.content)}: ${String(integer(record(value.reactors)?.totalCount))}`,
         "tag",
       );
       if (value.viewerHasReacted === true) tag.classList.add("selected");
@@ -285,11 +359,11 @@ function isViewer(author: unknown): boolean {
   return viewerId !== undefined && string(record(author)?.id) === viewerId;
 }
 
-async function addViewerState(content: Record<string, unknown>): Promise<void> {
+async function addViewerState(contents: readonly Record<string, unknown>[]): Promise<void> {
   const token = authentication.token();
   if (token === null) return;
   const subjects = new Map<string, Record<string, unknown>>();
-  collectSubjects(content, subjects);
+  for (const content of contents) collectSubjects(content, subjects);
   const states = await viewerSubjectStates(token, [...subjects.keys()]);
   for (const [id, state] of states) overlayViewerState(subjects.get(id), state);
 }

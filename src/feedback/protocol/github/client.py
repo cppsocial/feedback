@@ -92,6 +92,11 @@ class GitHubClient:
         if response.status_code >= 400:
             raise _response_error(response, "github_http_error")
         if data.get("errors"):
+            logger.warning(
+                "GitHub GraphQL operation rejected: errors=%s github_request_id=%s",
+                _safe_graphql_errors(data.get("errors")),
+                response.headers.get("x-github-request-id"),
+            )
             raise _response_error(response, "github_graphql_error")
         result = data.get("data")
         if not isinstance(result, dict):
@@ -182,6 +187,26 @@ def _json_object(response: httpx.Response) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _response_error(response, "github_malformed_response")
     return value
+
+
+def _safe_graphql_errors(value: object) -> str:
+    if not isinstance(value, list):
+        return "unknown"
+    result: list[str] = []
+    for error in value[:5]:
+        if not isinstance(error, dict):
+            result.append("unknown")
+            continue
+        kind = error.get("type")
+        path = error.get("path")
+        safe_kind = kind if isinstance(kind, str) and kind.isidentifier() else "unknown"
+        safe_path = (
+            ".".join(item for item in path if isinstance(item, str))
+            if isinstance(path, list)
+            else ""
+        )
+        result.append(f"{safe_kind}:{safe_path}" if safe_path else safe_kind)
+    return ",".join(result) or "unknown"
 
 
 def _response_error(

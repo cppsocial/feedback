@@ -24,7 +24,7 @@ query FeedbackDiscussion(
       repository { id }
       category { id name }
       labels(first: 100) @include(if: $includeLabels) { nodes { id name color description } }
-      reactionGroups @include(if: $includeReactions) { content users { totalCount nodes { id } } }
+      reactionGroups @include(if: $includeReactions) { content reactors { totalCount } }
       upvoteCount
       poll @include(if: $includePolls) {
         question
@@ -44,7 +44,7 @@ query FeedbackDiscussion(
           isMinimized @include(if: $includeModeration)
           minimizedReason @include(if: $includeModeration)
           isAnswer @include(if: $includeAnswers)
-          reactionGroups @include(if: $includeCommentReactions) { content users { totalCount } }
+          reactionGroups @include(if: $includeCommentReactions) { content reactors { totalCount } }
           upvoteCount @include(if: $includeCommentUpvotes)
           replies(first: $comments) {
             totalCount
@@ -57,7 +57,7 @@ query FeedbackDiscussion(
               createdAt updatedAt deletedAt
               isMinimized @include(if: $includeModeration)
               minimizedReason @include(if: $includeModeration)
-              reactionGroups @include(if: $includeCommentReactions) { content users { totalCount } }
+              reactionGroups @include(if: $includeCommentReactions) { content reactors { totalCount } }
               upvoteCount @include(if: $includeCommentUpvotes)
             }
           }

@@ -32,7 +32,7 @@ class DiscussionGateway(Protocol):
 
 class DiscussionContentGateway(Protocol):
     async def content(
-        self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
+        self, site: SiteConfig, discussion_ids: list[str], comments: int = 25
     ) -> dict[str, Any]: ...
 
 

@@ -15,25 +15,44 @@ main {
 }
 
 .authentication-status {
-  align-items: center;
-  background: #f1f5f8;
-  border: 1px solid #d7dbe0;
   display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin: 1rem 0;
-  padding: 0.75rem;
 }
 
-.authentication-status small {
-  color: #555;
-  margin-right: auto;
+.feedback-authentication-dot {
+  background: #c9362b;
+  border: 2px solid #8f241d;
+  border-radius: 50%;
+  height: 1.25rem;
+  padding: 0;
+  width: 1.25rem;
+}
+
+.feedback-authentication-dot.authenticated {
+  background: #2b9b4b;
+  border-color: #17632e;
 }
 
 .thread {
   display: grid;
   gap: 1rem;
 }
+
+.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  margin-bottom: 2rem;
+}
+
+.ranking-card {
+  border: 1px solid #d7dbe0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.ranking-card h3 { margin-top: 0; }
 
 .discussion { border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem; }
 .own-post { border-color: #356fc0; box-shadow: inset 4px 0 #356fc0; }
@@ -49,6 +68,12 @@ main {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-top: 1rem;
+}
+
+.reaction-control {
+  border: 1px solid #c7ced8;
+  border-radius: 0.25rem;
+  padding: 0.35rem 0.55rem;
 }
 
 .poll-option {

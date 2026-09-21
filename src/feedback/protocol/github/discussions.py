@@ -89,7 +89,7 @@ class GitHubDiscussions:
         return discussion
 
     async def content(
-        self, site: SiteConfig, discussion_ids: list[str], comments: int = 100
+        self, site: SiteConfig, discussion_ids: list[str], comments: int = 25
     ) -> dict[str, Any]:
         return await self._client.graphql(
             site.installation_id,
@@ -155,8 +155,8 @@ def _vote_counts(value: object) -> tuple[int, int, dict[str, int]]:
     for group in value:
         if not isinstance(group, dict) or not isinstance(group.get("content"), str):
             raise GitHubError("github_malformed_response")
-        users = group.get("users")
-        count = users.get("totalCount") if isinstance(users, dict) else None
+        reactors = group.get("reactors", group.get("users"))
+        count = reactors.get("totalCount") if isinstance(reactors, dict) else None
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise GitHubError("github_malformed_response")
         counts[group["content"]] = count

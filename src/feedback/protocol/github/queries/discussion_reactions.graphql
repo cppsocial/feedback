@@ -7,7 +7,7 @@ query FeedbackDiscussionReactions($ids: [ID!]!, $includeReactions: Boolean!) {
       upvoteCount
       reactionGroups @include(if: $includeReactions) {
         content
-        users { totalCount nodes { id } }
+        reactors { totalCount }
       }
     }
   }

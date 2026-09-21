@@ -87,13 +87,13 @@ def _parse_node(
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("content"), str):
             raise GitHubError("github_malformed_response")
-        users = group.get("users")
-        if not isinstance(users, dict):
+        reactors = group.get("reactors", group.get("users"))
+        if not isinstance(reactors, dict):
             raise GitHubError("github_malformed_response")
-        count = users.get("totalCount")
+        count = reactors.get("totalCount")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise GitHubError("github_malformed_response")
-        nodes = users.get("nodes", [])
+        nodes = reactors.get("nodes", [])
         if not isinstance(nodes, list):
             raise GitHubError("github_malformed_response")
         accounts = tuple(

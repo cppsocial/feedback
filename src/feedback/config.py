@@ -112,8 +112,8 @@ class SiteConfig:
     default_category: str
     known_discussions: tuple[KnownDiscussionConfig, ...] = ()
     discussion_body: str = "Feedback for [{title}]({url})"
-    cache_fresh_seconds: int = 5
-    refresh_cooldown_seconds: int = 5
+    cache_fresh_seconds: int = 60
+    refresh_cooldown_seconds: int = 60
     refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
     reaction_counters: tuple[str, ...] = ()
@@ -300,8 +300,8 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             default_category=default_category,
             known_discussions=tuple(known_discussions),
             discussion_body=discussion_body,
-            cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 5),
-            refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 5),
+            cache_fresh_seconds=_bounded_int(value, "cache_fresh_seconds", 1, 3600, 60),
+            refresh_cooldown_seconds=_bounded_int(value, "refresh_cooldown_seconds", 1, 3600, 60),
             refresh_sweep_seconds=_bounded_int(
                 value, "refresh_sweep_seconds", 3600, 604_800, 86_400
             ),

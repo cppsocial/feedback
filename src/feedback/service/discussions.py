@@ -42,8 +42,9 @@ class DiscussionService:
     ) -> None:
         self._github = github
         self._clock = clock
-        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         self._content_tasks: dict[tuple[str, tuple[str, ...]], asyncio.Task[dict[str, Any]]] = {}
+        self._content_cache: dict[tuple[str, str], tuple[float, Any]] = {}
 
     async def ensure(
         self, site: SiteConfig, database: SiteDatabase, resource: Resource
@@ -53,7 +54,7 @@ class DiscussionService:
         canonical_url = _canonical_url(resource.url, site.origins)
         term = lookup_term(site.mapping, resource)
         category = site.category_for(resource.key)
-        lock = self._locks.setdefault((site.id, resource.key), asyncio.Lock())
+        lock = self._locks.setdefault(site.id, asyncio.Lock())
         async with lock:
             if (cached := database.discussion(resource.key)) is not None:
                 return cached
@@ -111,21 +112,41 @@ class DiscussionService:
             raise DiscussionError("discussion does not exist")
         resolved = [discussion for discussion in discussions if discussion is not None]
         ids = tuple(discussion.node_id for discussion in resolved)
-        key = (site.id, ids)
-        task = self._content_tasks.get(key)
-        if task is None or task.done():
-            gateway = cast(DiscussionContentGateway, self._github)
-            task = asyncio.create_task(gateway.content(site, list(ids)))
-            self._content_tasks[key] = task
-        try:
-            payload = _without_hidden_content(await asyncio.shield(task))
-            nodes = payload.get("nodes")
-            if not isinstance(nodes, list) or len(nodes) != len(resource_ids):
-                raise DiscussionError("discussion response is incomplete")
-            return dict(zip(resource_ids, nodes, strict=True))
-        finally:
-            if self._content_tasks.get(key) is task and task.done():
-                self._content_tasks.pop(key, None)
+        missing = tuple(
+            node_id
+            for node_id in ids
+            if (cached := self._content_cache.get((site.id, node_id))) is None
+            or self._clock() - cached[0] >= 10
+        )
+        if missing:
+            key = (site.id, missing)
+            task = self._content_tasks.get(key)
+            if task is None or task.done():
+                gateway = cast(DiscussionContentGateway, self._github)
+                task = asyncio.create_task(gateway.content(site, list(missing)))
+                self._content_tasks[key] = task
+            try:
+                payload = _without_hidden_content(await asyncio.shield(task))
+                nodes = payload.get("nodes")
+                if not isinstance(nodes, list) or len(nodes) != len(missing):
+                    raise DiscussionError("discussion response is incomplete")
+                if len(self._content_cache) + len(missing) > 128:
+                    requested = {(site.id, node_id) for node_id in ids}
+                    for cached_key in list(self._content_cache):
+                        if cached_key not in requested:
+                            self._content_cache.pop(cached_key)
+                        if len(self._content_cache) + len(missing) <= 128:
+                            break
+                fetched_at = self._clock()
+                for node_id, node in zip(missing, nodes, strict=True):
+                    self._content_cache[(site.id, node_id)] = (fetched_at, node)
+            finally:
+                if self._content_tasks.get(key) is task and task.done():
+                    self._content_tasks.pop(key, None)
+        return {
+            resource_id: copy.deepcopy(self._content_cache[(site.id, node_id)][1])
+            for resource_id, node_id in zip(resource_ids, ids, strict=True)
+        }
 
 
 def _without_hidden_content(data: dict[str, Any]) -> dict[str, Any]:
@@ -160,7 +181,10 @@ def _without_hidden_content(data: dict[str, Any]) -> dict[str, Any]:
 def _canonical_url(value: str | None, allowed_origins: tuple[str, ...]) -> str:
     if value is None:
         raise DiscussionError("canonical URL is required")
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise DiscussionError("canonical URL is not allowed") from exc
     origin = f"{parsed.scheme}://{parsed.netloc}"
     if origin not in allowed_origins or parsed.username or parsed.password or parsed.fragment:
         raise DiscussionError("canonical URL is not allowed")

@@ -57,7 +57,7 @@ class ReactionRefresher:
                 if parsed is None:
                     continue
                 node_id, thumbsup, thumbsdown, reactions, locked, updated_at = parsed
-                allowed = {"THUMBS_UP", "THUMBS_DOWN", *site.reaction_counters}
+                allowed = set(site.reaction_counters)
                 refreshed += database.update_reactions(
                     node_id=node_id,
                     thumbsup=thumbsup,
@@ -72,7 +72,7 @@ class ReactionRefresher:
 
 def _parse_node(
     value: object,
-) -> tuple[str, int, int, dict[str, tuple[int, tuple[str, ...]]], bool, int | None] | None:
+) -> tuple[str, int, int, dict[str, int], bool, int | None] | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -83,7 +83,7 @@ def _parse_node(
     groups = value.get("reactionGroups", [])
     if not isinstance(node_id, str) or not isinstance(locked, bool) or not isinstance(groups, list):
         raise GitHubError("github_malformed_response")
-    counts: dict[str, tuple[int, tuple[str, ...]]] = {}
+    counts: dict[str, int] = {}
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("content"), str):
             raise GitHubError("github_malformed_response")
@@ -93,17 +93,7 @@ def _parse_node(
         count = reactors.get("totalCount")
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise GitHubError("github_malformed_response")
-        nodes = reactors.get("nodes", [])
-        if not isinstance(nodes, list):
-            raise GitHubError("github_malformed_response")
-        accounts = tuple(
-            node["id"]
-            for node in nodes
-            if isinstance(node, dict) and isinstance(node.get("id"), str)
-        )
-        if len(accounts) != len(nodes):
-            raise GitHubError("github_malformed_response")
-        counts[group["content"]] = (count, accounts)
+        counts[group["content"]] = count
     updated_at: int | None = None
     if updated is not None:
         if not isinstance(updated, str):
@@ -114,8 +104,8 @@ def _parse_node(
             raise GitHubError("github_malformed_response") from exc
     return (
         node_id,
-        counts.get("THUMBS_UP", (0, ()))[0],
-        counts.get("THUMBS_DOWN", (0, ()))[0],
+        counts.get("THUMBS_UP", 0),
+        counts.get("THUMBS_DOWN", 0),
         counts,
         locked,
         updated_at,

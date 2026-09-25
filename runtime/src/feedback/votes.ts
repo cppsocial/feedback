@@ -30,12 +30,14 @@ export function createVoteControls(options: VoteControlsOptions): VoteControls {
   const listeners = new Map<HTMLButtonElement, () => void>();
   let states = new Map(options.client.cachedReactions(options.items.map((item) => item.resource.key)));
   let selections = new Map<string, ReadonlySet<string>>();
+  const pending = new Set<string>();
+  let refreshVersion = 0;
 
   for (const item of options.items) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.feedbackVote = `${item.resource.key}:${item.direction}`;
-    const activate = (): void => { void toggle(item, button); };
+    const activate = (): void => { void toggle(item); };
     button.addEventListener("click", activate);
     listeners.set(button, activate);
     buttons.set(item, button);
@@ -44,14 +46,18 @@ export function createVoteControls(options: VoteControlsOptions): VoteControls {
   }
 
   async function refresh(signal?: AbortSignal): Promise<void> {
+    const version = ++refreshVersion;
     const keys = options.items.map((item) => item.resource.key);
-    states = new Map(await options.client.reactions(keys, signal));
+    const updated = new Map(await options.client.reactions(keys, signal));
+    if (version !== refreshVersion) return;
+    states = updated;
     const token = options.authentication.token();
     selections.clear();
     if (token !== null) {
       try {
         const ids = [...states.values()].flatMap((state) => state.id ? [state.id] : []);
         const viewer = await viewerSubjectStates(token, ids);
+        if (version !== refreshVersion) return;
         selections = new Map([...states].map(([key, state]) => [key,
           state.id ? viewer.get(state.id)?.reactions ?? new Set<string>() : new Set<string>(),
         ]));
@@ -62,8 +68,12 @@ export function createVoteControls(options: VoteControlsOptions): VoteControls {
     for (const [item, button] of buttons) render(button, item, states.get(item.resource.key));
   }
 
-  async function toggle(item: VoteItem, button: HTMLButtonElement): Promise<void> {
-    button.disabled = true;
+  async function toggle(item: VoteItem): Promise<void> {
+    if (pending.has(item.resource.key)) return;
+    pending.add(item.resource.key);
+    for (const [currentItem, currentButton] of buttons) {
+      if (currentItem.resource.key === item.resource.key) currentButton.disabled = true;
+    }
     try {
       const token = options.authentication.token() ?? await options.authentication.authenticate();
       const resource = item.resource;
@@ -87,7 +97,10 @@ export function createVoteControls(options: VoteControlsOptions): VoteControls {
     } catch (error) {
       options.onError?.(error);
     } finally {
-      button.disabled = false;
+      pending.delete(item.resource.key);
+      for (const [currentItem, currentButton] of buttons) {
+        if (currentItem.resource.key === item.resource.key) currentButton.disabled = false;
+      }
     }
   }
 
@@ -100,6 +113,7 @@ export function createVoteControls(options: VoteControlsOptions): VoteControls {
   return {
     refresh,
     destroy(): void {
+      refreshVersion++;
       for (const [button, listener] of listeners) button.removeEventListener("click", listener);
       buttons.clear();
       listeners.clear();

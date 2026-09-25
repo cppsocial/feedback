@@ -20,6 +20,23 @@ is initiated only by user interaction. The browser then talks directly to
 GitHub for viewer state and mutations; the service never receives the user's
 GitHub token after exchange and provides no general user-token proxy.
 
+## Permissions
+
+| Principal | Permission used | Operation |
+| --- | --- | --- |
+| GitHub App installation | Discussions read | Find discussions, read threads, reactions, polls, labels, and author data |
+| GitHub App installation | Discussions write | Create a discussion after a signed creation grant |
+| Signed-in GitHub user | Discussions read/write on the target repository | Read viewer state; vote, react, comment, reply, edit, delete, and mark answers where GitHub permits |
+| Browser on an allowed site origin | Service read routes | Read public counters and threads without signing in |
+| Browser with OAuth state and PKCE verifier | Service OAuth routes | Exchange a code for a user token and creation grant |
+
+The example requests only the target repository's Discussions permission through
+the GitHub App. GitHub still enforces repository roles for edits, deletion, and
+answer selection. A creation grant does not grant those GitHub privileges.
+Origin checks enforce browser CORS policy; non-browser callers can forge an
+`Origin` header, so public reads rely on bounded batches, short-lived caching,
+and GitHub request concurrency limits rather than origin as authentication.
+
 ## Configuration and intents
 
 Every site declares `mode`, `intents`, one or more categories, and a default
@@ -37,7 +54,7 @@ in different categories should use category-qualified keys.
 | `reactions` | Main-post reaction groups selected by `reaction_counters` |
 | `discussion` | Authoritative thread read and discussion creation |
 | `comments` | Comments and replies |
-| `answers` | Accepted-answer state |
+| `answers` | Selected-answer state (`isAnswer`); GitHub GraphQL does not expose the verified-answer badge |
 | `polls` | Poll question, options, and totals |
 | `authors` | Author identity and `authorAssociation` |
 | `moderation` | Moderation reason for visible comments; minimized comments are always excluded |
@@ -62,6 +79,20 @@ All JSON responses contain `v: 1`. Errors are
 | `POST` | `/v1/sites/{site}/discussions/ensure` | Find or create a thread for a validated resource and grant |
 | `GET` | `/v1/sites/{site}/discussion?keys=a,b` | Fetch up to ten authoritative configured threads in one GitHub `nodes` query |
 
+`OPTIONS` is registered explicitly for the reaction and POST routes. It checks
+the site origin and returns the allowed method and headers. `HEAD` is disabled
+because a nominally cheap metadata request could otherwise trigger a GitHub read.
+
+The route map lives in `src/feedback/api/routes.py`. Handlers in
+`src/feedback/api/endpoints/` handle HTTP validation and responses; shared site
+authorization is in `src/feedback/api/context.py`. Counter shaping and GitHub
+operations live under `src/feedback/service/` and `src/feedback/protocol/`.
+
+The service registers only these API paths. `/` and documentation/schema paths
+return 404. The production reverse proxy rejects all other paths before they
+reach the service. It offers Brotli for eligible JSON responses when the client
+sends `Accept-Encoding: br`; small responses are left uncompressed.
+
 A minimal counter response is:
 
 ```json
@@ -72,6 +103,8 @@ A minimal counter response is:
 `reaction_counters` is non-empty. Cache age and server internals are not exposed.
 Unknown resources have `id: null` and zero counts. Counter responses revalidate
 with an ETag. Discussion and OAuth responses are `no-store`.
+Thread reads currently include the first 25 top-level comments and the first
+25 replies under each; pagination is not exposed by this API.
 
 ## Browser API
 
@@ -87,6 +120,12 @@ viewer-reaction state. A discussion UI can compose these
 without routing user actions through the service. Authentication tokens are held
 in session storage; counter/viewer snapshots contain no token.
 
+The example offers a simple textarea or local Markdown formatting tools. GitHub
+renders submitted Markdown. Successful mutations update the visible count from
+GitHub's response. Mutations are not aborted after dispatch because cancelling
+the network request cannot establish whether GitHub applied the change. After an
+uncertain failure, refresh viewer state before retrying.
+
 ## GitHub request audit and abuse boundaries
 
 The server can contact GitHub only in these places:
@@ -101,8 +140,9 @@ The server can contact GitHub only in these places:
 4. Discussion discovery/creation. Work is serialized per site/resource; exact
    repository and category matches are required, and the resulting ID is stored.
 5. Discussion reads. Up to ten threads are grouped in one `nodes(ids:)` request.
-   Identical simultaneous batches share only the in-flight request. Responses
-   are never retained.
+   Identical simultaneous batches share in-flight work; completed, filtered
+   results are held in a bounded 10-second memory cache. Deleted or minimized
+   content can therefore remain visible for up to 10 seconds after moderation.
 
 Request sizes, key syntax, JSON fields, body sizes, origins, and batch size are
 bounded. Security headers are applied globally. Logs omit tokens, OAuth codes,
@@ -110,7 +150,7 @@ comment bodies, URLs, origins, and client addresses. `--verbose` enables safe
 route timing and cache/GitHub-boundary diagnostics.
 
 The database stores discussion identity and aggregate counters only. It does not
-store discussion or comment bodies. Consequently a later request cannot serve a
-cached copy of deleted content. Deleted or minimized comment nodes are excluded
-from discussion responses together with their replies, before the API returns
-the payload; no hidden body is sent to the browser.
+store discussion or comment bodies. Deleted or minimized comment nodes are
+excluded from discussion responses together with their replies before caching.
+The example browser also keeps a 10-second thread snapshot to avoid network
+requests when users change local presentation settings.

@@ -92,16 +92,10 @@ async def test_refreshes_known_nodes_and_preserves_missing_nodes(
 
     with database.connect() as connection:
         reaction_rows = connection.execute(
-            "SELECT reaction, account_id, count FROM reactions WHERE object_id = ? "
-            "ORDER BY reaction, account_id",
+            "SELECT reaction, count FROM reactions WHERE object_id = ? ORDER BY reaction",
             ("D_a",),
         ).fetchall()
-    assert reaction_rows == [
-        ("THUMBS_DOWN", "*", 1),
-        ("THUMBS_DOWN", "U_two", 1),
-        ("THUMBS_UP", "*", 6),
-        ("THUMBS_UP", "U_one", 1),
-    ]
+    assert reaction_rows == []
 
 
 def test_stale_request_waits_for_one_refresh_and_returns_external_votes(
@@ -202,7 +196,7 @@ async def test_simultaneous_stale_reads_share_one_github_batch(
 
 
 @pytest.mark.asyncio
-async def test_refresh_window_preserves_then_replaces_tentative_counts(
+async def test_refresh_window_preserves_then_replaces_cached_counts(
     config: Config, tmp_path: Path
 ) -> None:
     store = SiteDatabase(tmp_path / "site.sqlite3")
@@ -240,16 +234,9 @@ async def test_refresh_window_preserves_then_replaces_tentative_counts(
         lambda: now,
         refresher=ReactionRefresher(github, clock=lambda: now),
     )
-    store.adjust_reactions(
-        resource_id="feedback/example",
-        node_id="D_example",
-        up_delta=1,
-        down_delta=0,
-    )
-
     await runtime.refresh_stale(site, store.reactions(["feedback/example"]))
     assert github.calls == []
-    assert store.reactions(["feedback/example"])["feedback/example"].up == 10
+    assert store.reactions(["feedback/example"])["feedback/example"].up == 9
 
     now = 105
     await runtime.refresh_stale(site, store.reactions(["feedback/example"]))

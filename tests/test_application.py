@@ -79,6 +79,22 @@ def test_reactions_honors_etag(config: Config) -> None:
     assert second.content == b""
 
 
+def test_reactions_preflight_is_explicit_and_origin_scoped(config: Config) -> None:
+    with TestClient(create_app(config)) as client:
+        allowed = client.options(
+            "/v1/sites/cpp-social/reactions",
+            headers={"Origin": "https://cpp.social"},
+        )
+        denied = client.options(
+            "/v1/sites/cpp-social/reactions",
+            headers={"Origin": "https://attacker.example"},
+        )
+
+    assert allowed.status_code == 204
+    assert allowed.headers["access-control-allow-methods"] == "GET"
+    assert denied.status_code == 403
+
+
 def test_reactions_rejects_cross_site_origin(config: Config) -> None:
     with TestClient(create_app(config)) as client:
         response = client.get(
@@ -100,12 +116,17 @@ def test_reactions_rejects_invalid_and_empty_keys(config: Config) -> None:
     assert empty.status_code == 400
 
 
-def test_root_redirects_to_static_host(config: Config) -> None:
+def test_only_api_routes_are_served(config: Config) -> None:
     with TestClient(create_app(config), follow_redirects=False) as client:
-        response = client.get("/")
+        root = client.get("/")
+        docs = client.get("/docs")
+        schema = client.get("/openapi.json")
+        head = client.head("/v1/sites/cpp-social/reactions?keys=a")
+        trailing_slash = client.get("/v1/sites/cpp-social/reactions/?keys=a")
 
-    assert response.status_code == 308
-    assert response.headers["location"] == "https://feedback.cpp.social/"
+    assert (root.status_code, docs.status_code, schema.status_code) == (404, 404, 404)
+    assert head.status_code == 405
+    assert trailing_slash.status_code == 404
 
 
 def test_json_response_is_compact(config: Config) -> None:

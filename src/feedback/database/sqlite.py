@@ -11,12 +11,11 @@ from feedback.database.migrations import scripts
 from feedback.database.queries import load
 
 MIGRATIONS = scripts()
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 REACTIONS = load("reactions")
 DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
 UPDATE_REACTIONS = load("update_reactions")
-ADJUST_REACTIONS = load("adjust_reactions")
 TRACKED_REACTIONS = load("tracked_reactions")
 
 
@@ -154,9 +153,13 @@ class SiteDatabase:
             if reactions:
                 connection.executemany(
                     "INSERT OR REPLACE INTO reactions "
-                    "(object_id, reaction, account_id, count, updated_at) "
-                    "VALUES (?, ?, '*', ?, ?)",
-                    [(node_id, name, count, fetched) for name, count in reactions.items()],
+                    "(object_id, reaction, count, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    [
+                        (node_id, name, count, fetched)
+                        for name, count in reactions.items()
+                        if name not in {"THUMBS_UP", "THUMBS_DOWN"}
+                    ],
                 )
 
     def update_reactions(
@@ -165,7 +168,7 @@ class SiteDatabase:
         node_id: str,
         thumbsup: int,
         thumbsdown: int,
-        reactions: dict[str, tuple[int, tuple[str, ...]]],
+        reactions: dict[str, int],
         locked: bool,
         updated_at: int | None,
         fetched_at: int,
@@ -182,36 +185,8 @@ class SiteDatabase:
                 )
                 connection.executemany(
                     "INSERT INTO reactions "
-                    "(object_id, reaction, account_id, count, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    [
-                        (node_id, name, account_id, count, fetched_at)
-                        for name, (total, accounts) in reactions.items()
-                        for account_id, count in _reaction_rows(total, accounts)
-                    ],
+                    "(object_id, reaction, count, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    [(node_id, name, count, fetched_at) for name, count in reactions.items()],
                 )
         return cursor.rowcount == 1
-
-    def adjust_reactions(
-        self,
-        *,
-        resource_id: str,
-        node_id: str,
-        up_delta: int,
-        down_delta: int,
-    ) -> tuple[int, int] | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                ADJUST_REACTIONS,
-                (up_delta, down_delta, resource_id, node_id),
-            ).fetchone()
-        return (row[0], row[1]) if row is not None else None
-
-
-def _reaction_rows(total: int, accounts: tuple[str, ...]) -> list[tuple[str, int]]:
-    unique = tuple(dict.fromkeys(accounts))
-    rows = [(account_id, 1) for account_id in unique]
-    remainder = total - len(unique)
-    if remainder > 0:
-        rows.append(("*", remainder))
-    return rows

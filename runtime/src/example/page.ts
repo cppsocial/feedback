@@ -40,7 +40,12 @@ const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
 let selectedKey = keys[0] ?? "";
 let cardViewerStates = new Map<string, ViewerSubjectState>();
+let counterSnapshot: ReadonlyMap<string, ReactionState> | undefined;
+let counterSnapshotAt = 0;
+const threadSnapshots = new Map<string, { at: number; discussion: Record<string, unknown> }>();
+let renderSequence = 0;
 const pendingVotes = new Set<string>();
+const pendingReactions = new Set<string>();
 const counterOverrides = new Map<string, {
   up?: number;
   down?: number;
@@ -57,6 +62,36 @@ const authenticationStatus = createAuthenticationStatus({
 required("comment-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void submitComment();
+});
+const editorMode = required("editor-mode") as HTMLSelectElement;
+const editorTools = required("editor-tools");
+try {
+  editorMode.value = localStorage.getItem("feedback.editorMode") === "markdown" ? "markdown" : "simple";
+} catch {
+  editorMode.value = "simple";
+}
+const updateEditor = (): void => { editorTools.hidden = editorMode.value !== "markdown"; };
+editorMode.addEventListener("change", () => {
+  updateEditor();
+  try { localStorage.setItem("feedback.editorMode", editorMode.value); } catch { /* Optional preference. */ }
+});
+updateEditor();
+editorTools.addEventListener("click", (event) => {
+  const button = (event.target as Element).closest<HTMLButtonElement>("button[data-markdown]");
+  if (!button) return;
+  const textarea = required("comment-body") as HTMLTextAreaElement;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selected = textarea.value.slice(start, end);
+  const action = button.dataset.markdown;
+  const replacement = action === "bold" ? `**${selected || "bold text"}**`
+    : action === "italic" ? `*${selected || "italic text"}*`
+    : action === "code" ? `\`${selected || "code"}\``
+    : action === "link" ? `[${selected || "link text"}](https://)`
+    : action === "quote" ? `> ${selected || "quoted text"}`
+    : `- ${selected || "list item"}`;
+  textarea.setRangeText(replacement, start, end, "select");
+  textarea.focus();
 });
 required("clear-reply").addEventListener("click", () => {
   replyTo = undefined;
@@ -112,7 +147,8 @@ async function submitComment(): Promise<void> {
     replyTo = undefined;
     required("clear-reply").hidden = true;
     status.textContent = "Comment posted. Refreshing the thread…";
-    await render();
+    threadSnapshots.delete(key);
+    await render(true);
     status.textContent = "Comment posted.";
   } catch (error) {
     if (error instanceof FeedbackError && error.status === 401) authentication.clear();
@@ -122,9 +158,15 @@ async function submitComment(): Promise<void> {
   }
 }
 
-async function render(): Promise<void> {
+async function render(force = false): Promise<void> {
+  const sequence = ++renderSequence;
+  const key = selectedKey;
   try {
-    let states = await client.reactions(keys);
+    if (force || counterSnapshot === undefined || Date.now() - counterSnapshotAt >= 30_000) {
+      counterSnapshot = await client.reactions(keys);
+      counterSnapshotAt = Date.now();
+    }
+    let states = counterSnapshot;
     const token = authentication.token();
     if (token !== null) {
       try {
@@ -138,13 +180,22 @@ async function render(): Promise<void> {
     }
     states = applyCounterOverrides(states);
     renderRankingCards(states);
-    const existingKeys = states.get(selectedKey)?.id ? [selectedKey] : [];
+    const existingKeys = states.get(key)?.id ? [key] : [];
     const root = required("thread");
     const rendered = document.createDocumentFragment();
     let contents = new Map<string, { discussion: Record<string, unknown> }>();
     let contentError: unknown;
     try {
-      if (existingKeys.length > 0) contents = new Map(await client.discussionContents(existingKeys));
+      if (existingKeys.length > 0) {
+        const snapshot = threadSnapshots.get(key);
+        if (!force && snapshot && Date.now() - snapshot.at < 10_000) {
+          contents.set(key, { discussion: structuredClone(snapshot.discussion) });
+        } else {
+          contents = new Map(await client.discussionContents(existingKeys));
+          const discussion = contents.get(key)?.discussion;
+          if (discussion) threadSnapshots.set(key, { at: Date.now(), discussion: structuredClone(discussion) });
+        }
+      }
       try {
         await addViewerState([...contents.values()].map((value) => value.discussion));
       } catch (error) {
@@ -153,6 +204,7 @@ async function render(): Promise<void> {
     } catch (error) {
       contentError = error;
     }
+    if (sequence !== renderSequence) return;
     for (const key of [selectedKey]) {
       const article = document.createElement("article");
       article.className = "discussion";
@@ -219,6 +271,7 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
         () => react(key, name as Reaction, selected),
       );
       reaction.className = "reaction-control";
+      reaction.disabled = pendingReactions.has(key);
       reaction.title = reactionLabel(name);
       reaction.setAttribute("aria-pressed", String(selected));
       reactions.append(reaction);
@@ -230,6 +283,11 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
 }
 
 async function react(key: string, reaction: Reaction, selected: boolean): Promise<void> {
+  if (pendingReactions.has(key)) return;
+  pendingReactions.add(key);
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".ranking-card .reaction-control")) {
+    button.disabled = true;
+  }
   try {
     const token = authentication.token() ?? await authentication.authenticate();
     authenticationStatus.refresh();
@@ -239,10 +297,14 @@ async function react(key: string, reaction: Reaction, selected: boolean): Promis
     const result = await setReaction(token, state.id, reaction, !selected);
     const override = counterOverride(key);
     override.reactions.set(reaction, { count: result.count, selected: result.viewerHasReacted });
+    if (counterSnapshot) renderRankingCards(applyCounterOverrides(counterSnapshot));
     status.textContent = `Updated ${reaction} on ${key}.`;
     await render();
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : "Unable to react.";
+  } finally {
+    pendingReactions.delete(key);
+    if (counterSnapshot) renderRankingCards(applyCounterOverrides(counterSnapshot));
   }
 }
 
@@ -322,6 +384,7 @@ async function vote(key: string, direction: "up" | "down"): Promise<void> {
       resourceUrl.search = "";
       resourceUrl.hash = "";
       await client.ensure({ key, title: key, url: resourceUrl.href }, token.creationGrant);
+      counterSnapshotAt = 0;
     }
     const viewer = state?.id ? cardViewerStates.get(state.id) : undefined;
     const current = viewer === undefined ? undefined
@@ -333,6 +396,7 @@ async function vote(key: string, direction: "up" | "down"): Promise<void> {
     override.down = result.down;
     override.reactions.set("THUMBS_UP", { count: result.up, selected: result.selected === "up" });
     override.reactions.set("THUMBS_DOWN", { count: result.down, selected: result.selected === "down" });
+    if (counterSnapshot) renderRankingCards(applyCounterOverrides(counterSnapshot));
     authenticationStatus.refresh();
     status.textContent = `Updated ${key}.`;
     await render();
@@ -466,8 +530,8 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     return article;
   }
   if (comment.isAnswer === true) {
-    article.classList.add("answer", "verified-answer");
-    appendText(article, "div", "✓ Verified answer", "answer-banner");
+    article.classList.add("answer");
+    appendText(article, "div", "✓ Selected answer", "answer-banner");
   }
   if (isViewer(comment.author)) article.classList.add("own-post");
   const admin = isAdmin(comment);
@@ -536,6 +600,7 @@ function subjectReactionControls(
   const available = initial.map((value) => value.reaction);
   const root = document.createElement("div");
   root.className = "reaction-controls";
+  let pending = false;
   const renderControls = (): void => {
     root.replaceChildren();
     for (const reaction of available) {
@@ -569,9 +634,11 @@ function subjectReactionControls(
       : `${reactionEmoji(state.reaction)} ${String(state.count)}`;
     button.title = reactionLabel(state.reaction);
     button.setAttribute("aria-pressed", String(state.selected));
+    button.disabled = pending;
     button.addEventListener("click", () => {
-      button.disabled = true;
-      button.classList.add("pending");
+      if (pending) return;
+      pending = true;
+      renderControls();
       void authenticateAndRun(async (token) => {
         const result = await setReaction(token, subjectId, state.reaction, !state.selected);
         states.set(state.reaction, {
@@ -581,8 +648,8 @@ function subjectReactionControls(
         });
         renderControls();
       }).finally(() => {
-        button.disabled = false;
-        button.classList.remove("pending");
+        pending = false;
+        renderControls();
       });
     });
     return button;

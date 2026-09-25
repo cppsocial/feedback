@@ -30,7 +30,23 @@
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">
         <div class="comment-box">
-          <div class="comment-box-header">Write</div>
+          <div class="comment-box-header">
+            <span>Write</span>
+            <label>Editor
+              <select id="editor-mode">
+                <option value="simple">Simple</option>
+                <option value="markdown">Markdown tools</option>
+              </select>
+            </label>
+          </div>
+          <div id="editor-tools" class="editor-tools" hidden>
+            <button type="button" data-markdown="bold" aria-label="Bold">B</button>
+            <button type="button" data-markdown="italic" aria-label="Italic">I</button>
+            <button type="button" data-markdown="code" aria-label="Code">&lt;/&gt;</button>
+            <button type="button" data-markdown="link" aria-label="Link">Link</button>
+            <button type="button" data-markdown="quote" aria-label="Quote">Quote</button>
+            <button type="button" data-markdown="list" aria-label="List">List</button>
+          </div>
           <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Leave a comment"></textarea>
           <small>Markdown is supported. Content is rendered using GitHub's sanitized Markdown HTML.</small>
         </div>

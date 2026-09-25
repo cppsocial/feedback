@@ -13,13 +13,13 @@ CREATE TABLE discussions (
 
 CREATE TABLE reactions (
     object_id TEXT NOT NULL,
-    reaction TEXT NOT NULL, account_id TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 0),
-    updated_at INTEGER NOT NULL, PRIMARY KEY (object_id, reaction, account_id),
+    reaction TEXT NOT NULL, count INTEGER NOT NULL CHECK (count >= 0),
+    updated_at INTEGER NOT NULL, PRIMARY KEY (object_id, reaction),
     FOREIGN KEY (object_id) REFERENCES discussions (id) ON DELETE CASCADE
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX reactions_by_discussion ON reactions (object_id, reaction);
 CREATE INDEX discussions_by_lookup ON discussions (category_key, lookup_term);
 
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 COMMIT;

@@ -58,7 +58,8 @@ Useful verification commands on the VPS:
 
 ```sh
 systemctl status feedback-service
-curl --fail --silent --show-error https://feedback-api.cpp.social/
+curl --fail --silent --show-error --compressed \
+  'https://feedback-api.cpp.social/v1/sites/cpp-social/reactions?keys=feedback/example'
 ```
 
 ## Site mappings and metadata
@@ -127,29 +128,35 @@ addresses.
 ## Counter cache and discussion content
 
 The service database keeps discussion identifiers and aggregate counters only.
-Discussion/comment bodies are never persisted or
-reused between requests, preventing deleted content from being served from a
-stale cache. Only concurrent reads for the same thread share an in-flight GitHub
-call.
+Discussion and comment bodies are not persisted. Filtered thread responses are
+held in a bounded ten-second memory cache keyed by discussion ID, so a recently
+deleted comment may remain visible briefly. Identical concurrent reads share an
+in-flight GitHub call.
+
+This revision uses schema version 6. It does not migrate existing version 5
+databases. Remove the service's SQLite database files before starting this build;
+configured `known_discussions` are seeded again and counters refill from GitHub.
 
 `cache_fresh_seconds` is the age at which a requested tracked counter needs an
-authoritative GitHub refresh. The default is five seconds. A batched request
+authoritative GitHub refresh. The default is 60 seconds. A batched request
 refreshes only stale resources; recently refreshed resources in the same request
-are served from SQLite. For example, if A was last refreshed 30 seconds ago and B
-three seconds ago, requesting `[A, B]` sends only A's discussion ID to GitHub and
+are served from SQLite. For example, if A was last refreshed 90 seconds ago and B
+30 seconds ago, requesting `[A, B]` sends only A's discussion ID to GitHub and
 returns B from SQLite in the same response.
 
 `refresh_cooldown_seconds` is the minimum delay before retrying a refresh attempt
 for the same resource. It primarily prevents repeated GitHub calls after a failed
 or concurrent attempt. Concurrent requests also join the same in-flight site
-batch. The default is five seconds.
+batch. The default is 60 seconds.
 
 `refresh_sweep_seconds` controls the low-priority full maintenance cycle. The
 default is 86400 seconds (daily). The service walks only discussions whose last
 authoritative snapshot is that old, in batches of 50 with pacing between full
 batches. Targeted requests and successful votes continue independently.
 
-Browser mutations do not write speculative server values. The next successful
+Successful browser mutations update the displayed counters immediately, without
+submitting a second vote or trusting an unverified client count on the server.
+The next successful
 targeted or maintenance refresh replaces counters with GitHub's absolute counts.
 Counter responses use `no-cache`, so
 browsers revalidate with this service; that does not imply a GitHub request while

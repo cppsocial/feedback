@@ -1,258 +1,33 @@
-from __future__ import annotations
+from collections.abc import Callable
+from typing import Any
 
-import hashlib
-import json
-import logging
-from contextlib import suppress
-from typing import cast
+from starlette.routing import Route
 
-from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
-
-from feedback.api.http import (
-    ApiError,
-    cors,
-    ensure_discussion_request,
-    error_response,
-    json_strings,
-    preflight,
-    resource_keys,
+from feedback.api.endpoints.discussions import content, ensure, ensure_options
+from feedback.api.endpoints.oauth import (
+    authorize,
+    authorize_options,
+    exchange,
+    exchange_options,
 )
-from feedback.config import SiteConfig
-from feedback.protocol.github.client import GitHubError
-from feedback.protocol.github.oauth import OAuthError
-from feedback.service.discussions import DiscussionError
-from feedback.service.oauth_state import GrantError, StateError
-from feedback.service.runtime import FeedbackRuntime
-
-oauth_logger = logging.getLogger("feedback.oauth")
-github_logger = logging.getLogger("feedback.github")
+from feedback.api.endpoints.reactions import get_reactions, options_reactions
 
 
-async def homepage(request: Request) -> Response:
-    callback = services(request).config.service.oauth_callback
-    return RedirectResponse(callback.split("/v1/oauth/", 1)[0] + "/", status_code=308)
+class ApiRoute(Route):
+    def __init__(self, path: str, endpoint: Callable[..., Any], *, method: str) -> None:
+        super().__init__(path, endpoint, methods=[method])
+        # Starlette adds HEAD to every GET route; these reads can trigger GitHub calls.
+        self.methods = {method}
 
 
-async def reactions(request: Request) -> Response:
-    container, site, origin = site_context(request, require_origin=request.method == "OPTIONS")
-    require_feature(site, "votes")
-    if request.method == "OPTIONS":
-        assert origin is not None
-        return preflight(origin, method="GET", headers="If-None-Match")
-    keys = resource_keys(request.query_params, site.max_batch_size)
-    cached = container.databases[site.id].reactions(keys)
-    with suppress(GitHubError):
-        await container.refresh_stale(site, cached)
-    cached = container.databases[site.id].reactions(keys)
-    items: dict[str, dict[str, object]] = {}
-    for key in keys:
-        item = cached.get(key)
-        if item is None:
-            value: dict[str, object] = {"id": None, "up": 0, "down": 0}
-            if "github_link" in site.intents:
-                value["number"] = None
-            if site.reaction_counters:
-                value["reactions"] = {name: 0 for name in site.reaction_counters}
-            items[key] = value
-            continue
-        value = {"id": item.node_id, "up": item.thumbsup, "down": item.thumbsdown}
-        if "github_link" in site.intents:
-            value["number"] = item.number
-        if site.reaction_counters:
-            value["reactions"] = {
-                name: item.reactions.get(name, 0) for name in site.reaction_counters
-            }
-        items[key] = value
-    payload = {"v": 1, "site": site.id, "items": items}
-    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    etag = f'"{hashlib.sha256(body).hexdigest()}"'
-    headers = {
-        # Revalidate with the service so a successful vote is visible after a
-        # reload. GitHub traffic is still bounded by the server-side freshness
-        # window and coalesced refresh task.
-        "Cache-Control": "no-cache",
-        "ETag": etag,
-        "Vary": "Origin",
-    }
-    response = (
-        Response(status_code=304, headers=headers)
-        if request.headers.get("if-none-match") == etag
-        else Response(body, media_type="application/json", headers=headers)
-    )
-    return cors(response, origin)
-
-
-async def oauth_authorize(request: Request) -> Response:
-    container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"votes", "discussion", "comments"})
-    assert origin is not None
-    if container.oauth is None:
-        raise ApiError("service_unavailable", "OAuth is unavailable.", 503)
-    if request.method == "OPTIONS":
-        return preflight(origin, method="POST", headers="Content-Type")
-    body = await json_strings(request, frozenset({"challenge", "nonce"}))
-    try:
-        url, state = container.oauth.authorization_url(
-            site=site.id,
-            origin=origin,
-            challenge=body["challenge"],
-            nonce=body["nonce"],
-        )
-    except StateError, TypeError:
-        raise ApiError("invalid_oauth_request", "OAuth parameters are invalid.", 400) from None
-    return cors(
-        JSONResponse(
-            {"v": 1, "authorization_url": url, "state": state},
-            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
-        ),
-        origin,
-    )
-
-
-async def oauth_exchange(request: Request) -> Response:
-    container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"votes", "discussion", "comments"})
-    assert origin is not None
-    if container.oauth is None:
-        raise ApiError("service_unavailable", "OAuth is unavailable.", 503)
-    if request.method == "OPTIONS":
-        return preflight(origin, method="POST", headers="Content-Type")
-    body = await json_strings(request, frozenset({"code", "state", "verifier"}))
-    try:
-        token, state = await container.oauth.exchange(
-            site=site.id,
-            origin=origin,
-            code=body["code"],
-            state=body["state"],
-            verifier=body["verifier"],
-        )
-    except StateError:
-        raise ApiError("invalid_oauth_state", "Authorization must be restarted.", 400) from None
-    except OAuthError as exc:
-        oauth_logger.warning(
-            "GitHub OAuth exchange failed: reason=%s status=%s upstream_code=%s "
-            "github_request_id=%s site=%s",
-            exc.reason,
-            exc.status,
-            exc.upstream_code,
-            exc.request_id,
-            site.id,
-        )
-        status = 502 if exc.code == "oauth_exchange_ambiguous" else 400
-        raise ApiError(exc.code, "Authorization must be restarted.", status) from exc
-    if container.grants is None:
-        raise ApiError("service_unavailable", "Discussion creation is unavailable.", 503)
-    grant = container.grants.issue(site=site.id, origin=origin, nonce=state.nonce)
-    return cors(
-        JSONResponse(
-            {
-                "v": 1,
-                "access_token": token.value,
-                "expires_at": token.expires_at,
-                "creation_grant": grant,
-            },
-            headers={"Cache-Control": "no-store, private", "Pragma": "no-cache"},
-        ),
-        origin,
-    )
-
-
-async def ensure_discussion(request: Request) -> Response:
-    container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"votes", "discussion"})
-    assert origin is not None
-    if container.grants is None or container.discussions is None:
-        raise ApiError("service_unavailable", "Discussion creation is unavailable.", 503)
-    if request.method == "OPTIONS":
-        return preflight(origin, method="POST", headers="Content-Type")
-    body = await ensure_discussion_request(request)
-    try:
-        container.grants.verify(body.grant, site=site.id, origin=origin)
-        discussion = await container.discussions.ensure(
-            site, container.databases[site.id], body.resource
-        )
-    except GrantError as exc:
-        oauth_logger.warning(
-            "Discussion creation grant rejected: reason=%s site=%s",
-            str(exc),
-            site.id,
-        )
-        raise ApiError("invalid_creation_grant", "Authentication must be restarted.", 401) from None
-    except DiscussionError as exc:
-        raise ApiError("discussion_invalid", str(exc), 400) from exc
-    except GitHubError as exc:
-        github_logger.warning(
-            "GitHub discussion request failed: code=%s status=%s github_request_id=%s site=%s",
-            exc.code,
-            exc.status,
-            exc.request_id,
-            site.id,
-        )
-        raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
-    return cors(
-        JSONResponse(
-            {"v": 1, "id": discussion.node_id, "number": discussion.number},
-            headers={"Cache-Control": "no-store"},
-        ),
-        origin,
-    )
-
-
-async def discussion_content(request: Request) -> Response:
-    container, site, origin = site_context(request, require_origin=True)
-    assert origin is not None
-    require_feature(site, "discussion")
-    if container.discussions is None:
-        raise ApiError("service_unavailable", "Discussion content is unavailable.", 503)
-    # Thread payloads are much larger than counters; keep one request useful for
-    # a page without allowing a client to multiply a 100-comment query 100-fold.
-    keys = resource_keys(request.query_params, min(site.max_batch_size, 10))
-    try:
-        content = await container.discussions.contents(site, container.databases[site.id], keys)
-    except DiscussionError as exc:
-        raise ApiError("discussion_not_found", str(exc), 404) from exc
-    except GitHubError as exc:
-        raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
-    return cors(
-        JSONResponse(
-            {"v": 1, "site": site.id, "items": content},
-            headers={"Cache-Control": "no-store"},
-        ),
-        origin,
-    )
-
-
-async def api_error(request: Request, error: Exception) -> Response:
-    assert isinstance(error, ApiError)
-    response = error_response(error)
-    site = services(request).config.sites.get(request.path_params.get("site", ""))
-    origin = request.headers.get("origin")
-    return cors(response, origin if site is not None and origin in site.origins else None)
-
-
-def services(request: Request) -> FeedbackRuntime:
-    return cast(FeedbackRuntime, request.app.state.services)
-
-
-def require_feature(site: SiteConfig, feature: str) -> None:
-    if feature not in site.intents:
-        raise ApiError("feature_disabled", "This feature is not enabled for the site.", 404)
-
-
-def require_any_intent(site: SiteConfig, intents: set[str]) -> None:
-    if not site.intents.intersection(intents):
-        raise ApiError("feature_disabled", "This feature is not enabled for the site.", 404)
-
-
-def site_context(
-    request: Request, *, require_origin: bool = False
-) -> tuple[FeedbackRuntime, SiteConfig, str | None]:
-    container = services(request)
-    site = container.config.sites.get(request.path_params["site"])
-    if site is None:
-        raise ApiError("site_not_found", "Unknown site.", 404)
-    origin = request.headers.get("origin")
-    if (require_origin and origin is None) or (origin is not None and origin not in site.origins):
-        raise ApiError("origin_not_allowed", "The request origin is not allowed.", 403)
-    return container, site, origin
+API_ROUTES = (
+    ApiRoute("/v1/sites/{site}/reactions", get_reactions, method="GET"),
+    ApiRoute("/v1/sites/{site}/reactions", options_reactions, method="OPTIONS"),
+    ApiRoute("/v1/sites/{site}/oauth/authorize", authorize, method="POST"),
+    ApiRoute("/v1/sites/{site}/oauth/authorize", authorize_options, method="OPTIONS"),
+    ApiRoute("/v1/sites/{site}/oauth/exchange", exchange, method="POST"),
+    ApiRoute("/v1/sites/{site}/oauth/exchange", exchange_options, method="OPTIONS"),
+    ApiRoute("/v1/sites/{site}/discussions/ensure", ensure, method="POST"),
+    ApiRoute("/v1/sites/{site}/discussions/ensure", ensure_options, method="OPTIONS"),
+    ApiRoute("/v1/sites/{site}/discussion", content, method="GET"),
+)

@@ -19,8 +19,8 @@ default_category = "articles"
 discussion_body = "Discussion for [{title}]({url})."
 
 # Optional cache tuning; these are the defaults.
-# cache_fresh_seconds = 5
-# refresh_cooldown_seconds = 5
+# cache_fresh_seconds = 60
+# refresh_cooldown_seconds = 60
 # refresh_sweep_seconds = 86400
 # max_batch_size = 100
 intents = ["votes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "labels", "github_link"]

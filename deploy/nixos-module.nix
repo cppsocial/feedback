@@ -60,6 +60,7 @@ in
 
     services.nginx = mkIf cfg.proxy.enable {
       enable = mkDefault true;
+      additionalModules = [ pkgs.nginxModules.brotli ];
       recommendedGzipSettings = mkDefault true;
       recommendedProxySettings = mkDefault true;
       appendHttpConfig = ''
@@ -73,6 +74,10 @@ in
         extraConfig = ''
           client_max_body_size 16k;
           client_body_timeout 5s;
+          brotli on;
+          brotli_comp_level 4;
+          brotli_min_length 1024;
+          brotli_types application/json application/problem+json text/plain;
         '';
         locations = {
           "~ ^/v1/sites/[a-z0-9-]+/(?:oauth/(?:authorize|exchange)|discussions/ensure)$" = {
@@ -84,7 +89,7 @@ in
               proxy_send_timeout 15s;
             '';
           };
-          "/" = {
+          "~ ^/v1/sites/[a-z0-9-]+/(?:reactions|discussion)$" = {
             proxyPass = "http://127.0.0.1:18080";
             extraConfig = ''
               limit_req zone=feedback_general burst=30 nodelay;
@@ -92,6 +97,9 @@ in
               proxy_read_timeout 15s;
               proxy_send_timeout 15s;
             '';
+          };
+          "/" = {
+            extraConfig = "return 404;";
           };
         };
       };

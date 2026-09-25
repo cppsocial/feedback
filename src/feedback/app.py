@@ -11,19 +11,11 @@ from pathlib import Path
 import httpx
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.routing import Route
 
+from feedback.api.context import api_error
 from feedback.api.http import ApiError
 from feedback.api.middleware import SecurityHeadersMiddleware, VerboseRequestMiddleware
-from feedback.api.routes import (
-    api_error,
-    discussion_content,
-    ensure_discussion,
-    homepage,
-    oauth_authorize,
-    oauth_exchange,
-    reactions,
-)
+from feedback.api.routes import API_ROUTES
 from feedback.config import Config
 from feedback.database.sqlite import SiteDatabase
 from feedback.protocol.github.client import GitHubClient
@@ -133,30 +125,7 @@ def create_app(
                 await owned_http.aclose()
 
     application = Starlette(
-        routes=[
-            Route("/", homepage, methods=["GET"]),
-            Route("/v1/sites/{site}/reactions", reactions, methods=["GET"]),
-            Route(
-                "/v1/sites/{site}/oauth/authorize",
-                oauth_authorize,
-                methods=["POST", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/oauth/exchange",
-                oauth_exchange,
-                methods=["POST", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/discussions/ensure",
-                ensure_discussion,
-                methods=["POST", "OPTIONS"],
-            ),
-            Route(
-                "/v1/sites/{site}/discussion",
-                discussion_content,
-                methods=["GET"],
-            ),
-        ],
+        routes=API_ROUTES,
         lifespan=lifespan,
         exception_handlers={ApiError: api_error},
         middleware=[
@@ -164,6 +133,7 @@ def create_app(
             Middleware(VerboseRequestMiddleware, enabled=verbose),
         ],
     )
+    application.router.redirect_slashes = False
     return application
 
 

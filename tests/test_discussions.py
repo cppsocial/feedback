@@ -132,6 +132,32 @@ async def test_concurrent_content_reads_share_a_cached_github_request(
 
 
 @pytest.mark.asyncio
+async def test_content_cache_reuses_nodes_across_batch_shapes(
+    config: Config, tmp_path: Path
+) -> None:
+    database = SiteDatabase(tmp_path / "site.sqlite3")
+    database.migrate()
+    for key, node in (("feedback/first", "D_first"), ("feedback/second", "D_second")):
+        database.put_discussion(
+            resource_id=key,
+            lookup_term=key,
+            node_id=node,
+            number=1 if node == "D_first" else 2,
+            title=key,
+            url="https://github.test/1",
+        )
+    github = FakeContent()
+    service = DiscussionService(github, clock=lambda: 1_000)
+    site = config.sites["cpp-social"]
+
+    await service.contents(site, database, ["feedback/first", "feedback/second"])
+    await service.content(site, database, "feedback/first")
+    await service.contents(site, database, ["feedback/second", "feedback/first"])
+
+    assert github.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_hidden_comments_and_replies_are_excluded(config: Config, tmp_path: Path) -> None:
     database = SiteDatabase(tmp_path / "site.sqlite3")
     database.migrate()

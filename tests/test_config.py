@@ -43,8 +43,8 @@ def test_loads_valid_config_and_data_override(tmp_path: Path) -> None:
 
     assert config.service.data_directory == override
     configured_site = config.sites["cpp-social"]
-    assert configured_site.cache_fresh_seconds == 5
-    assert configured_site.refresh_cooldown_seconds == 5
+    assert configured_site.cache_fresh_seconds == 60
+    assert configured_site.refresh_cooldown_seconds == 60
     assert configured_site.refresh_sweep_seconds == 86_400
     assert configured_site.max_batch_size == 100
 

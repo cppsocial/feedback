@@ -84,7 +84,6 @@ class DiscussionService:
                 url=github.url,
                 up=github.thumbsup,
                 down=github.thumbsdown,
-                upvotes=github.upvotes,
                 reactions=github.reactions or {},
             )
             result = database.discussion(resource.key)
@@ -119,7 +118,7 @@ class DiscussionService:
             task = asyncio.create_task(gateway.content(site, list(ids)))
             self._content_tasks[key] = task
         try:
-            payload = _without_deleted_content(await asyncio.shield(task))
+            payload = _without_hidden_content(await asyncio.shield(task))
             nodes = payload.get("nodes")
             if not isinstance(nodes, list) or len(nodes) != len(resource_ids):
                 raise DiscussionError("discussion response is incomplete")
@@ -129,8 +128,8 @@ class DiscussionService:
                 self._content_tasks.pop(key, None)
 
 
-def _without_deleted_content(data: dict[str, Any]) -> dict[str, Any]:
-    """Remove content fields from deleted comments before they cross the API boundary."""
+def _without_hidden_content(data: dict[str, Any]) -> dict[str, Any]:
+    """Exclude deleted or minimized comments and their reply subtrees."""
     result = copy.deepcopy(data)
 
     def scrub(value: object) -> None:
@@ -140,9 +139,17 @@ def _without_deleted_content(data: dict[str, Any]) -> dict[str, Any]:
             return
         if not isinstance(value, dict):
             return
-        if value.get("deletedAt") is not None:
-            for field in ("body", "bodyHTML", "url", "author", "reactionGroups"):
-                value.pop(field, None)
+        nodes = value.get("nodes")
+        if isinstance(nodes, list):
+            visible = [
+                node
+                for node in nodes
+                if not isinstance(node, dict)
+                or (node.get("deletedAt") is None and node.get("isMinimized") is not True)
+            ]
+            value["nodes"] = visible
+            if "totalCount" in value:
+                value["totalCount"] = len(visible)
         for child in value.values():
             scrub(child)
 

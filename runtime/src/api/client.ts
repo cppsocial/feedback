@@ -2,27 +2,20 @@ import { validateResourceId } from "../feedback/resources.js";
 import type { Resource } from "../feedback/resources.js";
 import {
   addComment as addGitHubComment,
-  toggleUpvote as toggleGitHubUpvote,
-  viewerUpvotes,
+  setReaction,
+  viewerSubjectStates,
 } from "../protocol/github.js";
-import type { UpvoteResult } from "../protocol/github.js";
+import type { Reaction } from "../protocol/github.js";
 
 interface CounterState {
   id: string | null;
   number?: number | null;
-  upvotes: number;
+  up: number;
+  down: number;
   reactions?: Record<string, number>;
 }
 
-type StoredReactionState = CounterState & {
-  viewerHasUpvoted: boolean;
-  viewerKnown?: boolean;
-};
-
-export interface ReactionState extends CounterState {
-  viewerHasUpvoted: boolean;
-  viewerKnown: boolean;
-}
+export type ReactionState = CounterState;
 
 interface ReactionEnvelope {
   v: 1;
@@ -118,50 +111,10 @@ export class FeedbackClient {
     for (const key of normalized) {
       const state = payload.items[key] ?? emptyState();
       if (!isCounterState(state)) throw new TypeError("Invalid feedback service response");
-      const cached = this.#cachedReaction(key);
-      const combined = {
-        ...state,
-        viewerHasUpvoted: cached?.viewerHasUpvoted ?? false,
-        viewerKnown: cached?.viewerKnown ?? false,
-      };
-      result.set(key, combined);
-      this.#storeReaction(key, combined);
+      result.set(key, state);
+      this.#storeReaction(key, state);
     }
     return result;
-  }
-
-  async syncViewerUpvotes(
-    keys: Iterable<string>,
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<ReadonlyMap<string, ReactionState>> {
-    const normalized = [...new Set(Array.from(keys, validateResourceId))].sort();
-    if (normalized.length === 0) throw new TypeError("At least one resource key is required");
-    const pending = normalized.filter((key) => this.#viewerNeedsSync(key, token.viewerId));
-    if (pending.length > 0) {
-      const missing = pending.filter((key) => this.#cachedReaction(key)?.id === null);
-      if (missing.length > 0) await this.reactions(missing, signal);
-      const ids = pending.flatMap((key) => {
-        const id = this.#cachedReaction(key)?.id;
-        return id === null || id === undefined ? [] : [id];
-      });
-      const states = await viewerUpvotes(token, ids, this.#githubFetch, signal);
-      for (const key of pending) {
-        const cached = this.#cachedReaction(key) ?? emptyState();
-        const viewerHasUpvoted = cached.id === null ? false : states.get(cached.id) ?? false;
-        this.#storeReaction(
-          key,
-          {
-            ...cached,
-            viewerHasUpvoted,
-            viewerKnown: true,
-          },
-          true,
-          token.viewerId,
-        );
-      }
-    }
-    return this.cachedReactions(normalized);
   }
 
   async authorize(challenge: string, nonce: string, signal?: AbortSignal): Promise<Authorization> {
@@ -255,30 +208,39 @@ export class FeedbackClient {
     return addGitHubComment(token, discussionId, body, replyTo, this.#githubFetch, signal);
   }
 
-  async toggleUpvote(
+  async vote(
     key: string,
     token: AccessToken,
+    direction: "up" | "down",
+    current?: "up" | "down" | null,
     signal?: AbortSignal,
-  ): Promise<UpvoteResult> {
+  ): Promise<{ up: number; down: number; selected: "up" | "down" | null }> {
     validateResourceId(key);
     const discussionId = await this.#discussionId(key, signal);
-    const cachedBefore = this.#cachedReaction(key);
-    const current = cachedBefore?.viewerKnown === true ? cachedBefore.viewerHasUpvoted
-      : (await viewerUpvotes(token, [discussionId], this.#githubFetch, signal))
-        .get(discussionId) ?? false;
-    const result = await toggleGitHubUpvote(
-      token, discussionId, current, this.#githubFetch, signal,
+    let selected = current;
+    if (selected === undefined) {
+      const viewer = (await viewerSubjectStates(token, [discussionId], this.#githubFetch, signal))
+        .get(discussionId);
+      selected = viewer?.reactions.has("THUMBS_UP") === true ? "up"
+        : viewer?.reactions.has("THUMBS_DOWN") === true ? "down" : null;
+    }
+    const target: Reaction = direction === "up" ? "THUMBS_UP" : "THUMBS_DOWN";
+    const other: Reaction = direction === "up" ? "THUMBS_DOWN" : "THUMBS_UP";
+    let oppositeCount: number | undefined;
+    if (selected !== null && selected !== direction) {
+      oppositeCount = (await setReaction(token, discussionId, other, false, this.#githubFetch, signal)).count;
+    }
+    const result = await setReaction(
+      token, discussionId, target, selected !== direction, this.#githubFetch, signal,
     );
-    const cached = this.#cachedReaction(key);
-    this.#storeReaction(key, {
-      id: cached?.id ?? null,
-      ...(cached?.number === undefined ? {} : { number: cached.number }),
-      upvotes: result.count,
-      ...(cached?.reactions === undefined ? {} : { reactions: cached.reactions }),
-      viewerHasUpvoted: result.viewerHasUpvoted,
-      viewerKnown: true,
-    }, true, token.viewerId);
-    return result;
+    const cached = this.#cachedReaction(key) ?? emptyState();
+    const updated = {
+      ...cached,
+      up: direction === "up" ? result.count : oppositeCount ?? cached.up,
+      down: direction === "down" ? result.count : oppositeCount ?? cached.down,
+    };
+    this.#storeReaction(key, updated);
+    return { up: updated.up, down: updated.down, selected: result.viewerHasReacted ? direction : null };
   }
 
   async #discussionId(key: string, signal?: AbortSignal): Promise<string> {
@@ -330,10 +292,7 @@ export class FeedbackClient {
         this.#counterStorage.removeItem(counterKey(this.#site, key));
         return null;
       }
-      return {
-        ...value.state,
-        viewerKnown: value.state.viewerKnown ?? false,
-      };
+      return value.state;
     } catch {
       return null;
     }
@@ -342,26 +301,11 @@ export class FeedbackClient {
   #storeReaction(
     key: string,
     state: ReactionState,
-    viewerConfirmed = false,
-    viewerId?: string,
   ): void {
     try {
-      let viewerCheckedAt: number | null = null;
-      let existingViewerId: string | undefined;
-      const existing = this.#counterStorage?.getItem(counterKey(this.#site, key));
-      if (existing !== null && existing !== undefined) {
-        const parsed = JSON.parse(existing) as { viewerCheckedAt?: unknown; viewerId?: unknown };
-        if (Number.isSafeInteger(parsed.viewerCheckedAt)) viewerCheckedAt = parsed.viewerCheckedAt as number;
-        if (typeof parsed.viewerId === "string") existingViewerId = parsed.viewerId;
-      }
       this.#counterStorage?.setItem(
         counterKey(this.#site, key),
-        JSON.stringify({
-          savedAt: Date.now(),
-          viewerCheckedAt: viewerConfirmed ? Date.now() : viewerCheckedAt,
-          viewerId: viewerConfirmed ? viewerId : existingViewerId,
-          state,
-        }),
+        JSON.stringify({ savedAt: Date.now(), state }),
       );
     } catch {
       // Storage may be disabled or full; counters still work from the network.
@@ -369,25 +313,6 @@ export class FeedbackClient {
   }
 
 
-  #viewerNeedsSync(key: string, viewerId?: string): boolean {
-    if (this.#counterStorage === undefined) return true;
-    try {
-      const raw = this.#counterStorage.getItem(counterKey(this.#site, key));
-      if (raw === null) return true;
-      const value = JSON.parse(raw) as {
-        viewerCheckedAt?: unknown;
-        viewerId?: unknown;
-        state?: unknown;
-      };
-      return !isStoredReactionState(value.state) ||
-        !value.state.viewerKnown ||
-        (viewerId !== undefined && value.viewerId !== viewerId) ||
-        !Number.isSafeInteger(value.viewerCheckedAt) ||
-        Date.now() - (value.viewerCheckedAt as number) >= 5 * 60 * 1000;
-    } catch {
-      return true;
-    }
-  }
 }
 
 export class FeedbackError extends Error {
@@ -399,9 +324,8 @@ export class FeedbackError extends Error {
 function emptyState(): ReactionState {
   return {
     id: null,
-    upvotes: 0,
-    viewerHasUpvoted: false,
-    viewerKnown: false,
+    up: 0,
+    down: 0,
   };
 }
 
@@ -418,20 +342,16 @@ function isCounterState(value: unknown): value is CounterState {
     (state.id === null || typeof state.id === "string") &&
     (state.number === undefined || state.number === null ||
       Number.isSafeInteger(state.number) && state.number > 0) &&
-    Number.isSafeInteger(state.upvotes) && (state.upvotes ?? -1) >= 0 &&
+    Number.isSafeInteger(state.up) && (state.up ?? -1) >= 0 &&
+    Number.isSafeInteger(state.down) && (state.down ?? -1) >= 0 &&
     (state.reactions === undefined || typeof state.reactions === "object")
   );
 }
 
-function isStoredReactionState(value: unknown): value is StoredReactionState {
-  return isCounterState(value) &&
-    typeof (value as Partial<ReactionState>).viewerHasUpvoted === "boolean" &&
-    ((value as Partial<ReactionState>).viewerKnown === undefined ||
-      typeof (value as Partial<ReactionState>).viewerKnown === "boolean");
-}
+function isStoredReactionState(value: unknown): value is ReactionState { return isCounterState(value); }
 
 function counterKey(site: string, resource: string): string {
-  return `cppsocial.feedback.v1.${site}.reaction.${resource}`;
+  return `cppsocial.feedback.v2.${site}.reaction.${resource}`;
 }
 
 function browserStorage(): CounterStorage | undefined {

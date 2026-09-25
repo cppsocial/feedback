@@ -36,7 +36,7 @@ async def homepage(request: Request) -> Response:
 
 async def reactions(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=request.method == "OPTIONS")
-    require_feature(site, "upvotes")
+    require_feature(site, "votes")
     if request.method == "OPTIONS":
         assert origin is not None
         return preflight(origin, method="GET", headers="If-None-Match")
@@ -49,14 +49,14 @@ async def reactions(request: Request) -> Response:
     for key in keys:
         item = cached.get(key)
         if item is None:
-            value: dict[str, object] = {"id": None, "upvotes": 0}
+            value: dict[str, object] = {"id": None, "up": 0, "down": 0}
             if "github_link" in site.intents:
                 value["number"] = None
             if site.reaction_counters:
                 value["reactions"] = {name: 0 for name in site.reaction_counters}
             items[key] = value
             continue
-        value = {"id": item.node_id, "upvotes": item.upvotes}
+        value = {"id": item.node_id, "up": item.thumbsup, "down": item.thumbsdown}
         if "github_link" in site.intents:
             value["number"] = item.number
         if site.reaction_counters:
@@ -85,7 +85,7 @@ async def reactions(request: Request) -> Response:
 
 async def oauth_authorize(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"upvotes", "discussion", "comments"})
+    require_any_intent(site, {"votes", "discussion", "comments"})
     assert origin is not None
     if container.oauth is None:
         raise ApiError("service_unavailable", "OAuth is unavailable.", 503)
@@ -112,7 +112,7 @@ async def oauth_authorize(request: Request) -> Response:
 
 async def oauth_exchange(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"upvotes", "discussion", "comments"})
+    require_any_intent(site, {"votes", "discussion", "comments"})
     assert origin is not None
     if container.oauth is None:
         raise ApiError("service_unavailable", "OAuth is unavailable.", 503)
@@ -160,7 +160,7 @@ async def oauth_exchange(request: Request) -> Response:
 
 async def ensure_discussion(request: Request) -> Response:
     container, site, origin = site_context(request, require_origin=True)
-    require_any_intent(site, {"upvotes", "discussion"})
+    require_any_intent(site, {"votes", "discussion"})
     assert origin is not None
     if container.grants is None or container.discussions is None:
         raise ApiError("service_unavailable", "Discussion creation is unavailable.", 503)

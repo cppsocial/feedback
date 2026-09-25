@@ -67,7 +67,7 @@ class FeedbackRuntime:
         if self.refresher is None:
             return
         for site in self.config.sites.values():
-            if "upvotes" not in site.intents:
+            if "votes" not in site.intents:
                 continue
             cutoff = int(self.clock()) - site.refresh_sweep_seconds
             after = ""

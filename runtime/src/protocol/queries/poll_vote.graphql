@@ -1,5 +1,11 @@
 mutation FeedbackPollVote($id: ID!) {
   addDiscussionPollVote(input: {pollOptionId: $id}) {
-    pollOption { id totalVoteCount viewerHasVoted }
+    pollOption {
+      poll {
+        options(first: 100) {
+          nodes { id totalVoteCount viewerHasVoted }
+        }
+      }
+    }
   }
 }

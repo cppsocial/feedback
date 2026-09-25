@@ -1,7 +1,5 @@
 import type { AccessToken } from "../api/client.js";
 import addCommentMutation from "./queries/add_comment.graphql";
-import upvoteMutation from "./queries/upvote.graphql";
-import viewerUpvotesQuery from "./queries/viewer_upvotes.graphql";
 import viewerSubjectsQuery from "./queries/viewer_subjects.graphql";
 import reactionMutation from "./queries/reaction.graphql";
 import pollVoteMutation from "./queries/poll_vote.graphql";
@@ -11,23 +9,16 @@ import deleteCommentMutation from "./queries/delete_comment.graphql";
 
 export type Reaction = "THUMBS_UP" | "THUMBS_DOWN" | "LAUGH" | "HOORAY" | "CONFUSED" | "HEART" | "ROCKET" | "EYES";
 
-export interface UpvoteResult {
-  count: number;
-  viewerHasUpvoted: boolean;
-}
-
 export interface ReactionResult {
   count: number;
   viewerHasReacted: boolean;
 }
 
 export interface PollVoteResult {
-  count: number;
-  viewerHasVoted: boolean;
+  options: ReadonlyMap<string, { count: number; viewerHasVoted: boolean }>;
 }
 
 export interface ViewerSubjectState {
-  viewerHasUpvoted?: boolean;
   viewerHasVoted?: boolean;
   reactions: ReadonlySet<Reaction>;
 }
@@ -42,30 +33,6 @@ export class GitHubRequestError extends Error {
       ? `GitHub rejected the GraphQL operation${details.length ? `: ${details.join("; ")}` : ""}`
       : `GitHub request failed with status ${String(status)}`);
   }
-}
-
-export async function toggleUpvote(
-  token: AccessToken,
-  discussionId: string,
-  current: boolean,
-  fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
-  signal?: AbortSignal,
-): Promise<UpvoteResult> {
-  const operation = current ? "remove" : "add";
-  const body = await githubGraphql(
-    fetch, token, upvoteMutation, { id: discussionId, remove: current, add: !current }, signal,
-  );
-  const mutation = body.data?.[operation];
-  const subject = mutation && typeof mutation === "object"
-    ? (mutation as { subject?: unknown }).subject
-    : undefined;
-  if (!subject || typeof subject !== "object") throw new TypeError("Invalid GitHub response");
-  const value = subject as { upvoteCount?: unknown; viewerHasUpvoted?: unknown };
-  if (!Number.isSafeInteger(value.upvoteCount) || (value.upvoteCount as number) < 0 ||
-      typeof value.viewerHasUpvoted !== "boolean") {
-    throw new TypeError("Invalid GitHub response");
-  }
-  return { count: value.upvoteCount as number, viewerHasUpvoted: value.viewerHasUpvoted };
 }
 
 interface GraphQLResponse {
@@ -99,27 +66,6 @@ export async function githubGraphql(
   return result;
 }
 
-export async function viewerUpvotes(
-  token: AccessToken,
-  discussionIds: readonly string[],
-  fetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis),
-  signal?: AbortSignal,
-): Promise<ReadonlyMap<string, boolean>> {
-  const body = await githubGraphql(fetch, token, viewerUpvotesQuery, { ids: discussionIds }, signal);
-  const nodes = body.data?.nodes;
-  if (!Array.isArray(nodes)) throw new TypeError("Invalid GitHub response");
-  const result = new Map<string, boolean>();
-  for (const node of nodes) {
-    if (!node || typeof node !== "object") continue;
-    const candidate = node as { id?: unknown; viewerHasUpvoted?: unknown };
-    if (typeof candidate.id !== "string" || typeof candidate.viewerHasUpvoted !== "boolean") {
-      throw new TypeError("Invalid GitHub response");
-    }
-    result.set(candidate.id, candidate.viewerHasUpvoted);
-  }
-  return result;
-}
-
 export async function viewerSubjectStates(
   token: AccessToken,
   subjectIds: readonly string[],
@@ -147,8 +93,6 @@ export async function viewerSubjectStates(
         }
       }
       result.set(value.id, {
-        ...(typeof value.viewerHasUpvoted === "boolean"
-          ? { viewerHasUpvoted: value.viewerHasUpvoted } : {}),
         ...(typeof value.viewerHasVoted === "boolean"
           ? { viewerHasVoted: value.viewerHasVoted } : {}),
         reactions,
@@ -241,12 +185,24 @@ export async function setPollVote(
   const option = mutation && typeof mutation === "object"
     ? (mutation as { pollOption?: unknown }).pollOption : undefined;
   if (!option || typeof option !== "object") throw new TypeError("Invalid GitHub response");
-  const value = option as { totalVoteCount?: unknown; viewerHasVoted?: unknown };
-  if (!Number.isSafeInteger(value.totalVoteCount) || (value.totalVoteCount as number) < 0 ||
-      typeof value.viewerHasVoted !== "boolean") {
-    throw new TypeError("Invalid GitHub response");
+  const poll = (option as { poll?: unknown }).poll;
+  const options = poll && typeof poll === "object"
+    ? (poll as { options?: { nodes?: unknown } }).options?.nodes : undefined;
+  if (!Array.isArray(options)) throw new TypeError("Invalid GitHub response");
+  const states = new Map<string, { count: number; viewerHasVoted: boolean }>();
+  for (const entry of options) {
+    if (!entry || typeof entry !== "object") throw new TypeError("Invalid GitHub response");
+    const value = entry as { id?: unknown; totalVoteCount?: unknown; viewerHasVoted?: unknown };
+    if (typeof value.id !== "string" || !Number.isSafeInteger(value.totalVoteCount) ||
+        (value.totalVoteCount as number) < 0 || typeof value.viewerHasVoted !== "boolean") {
+      throw new TypeError("Invalid GitHub response");
+    }
+    states.set(value.id, {
+      count: value.totalVoteCount as number,
+      viewerHasVoted: value.viewerHasVoted,
+    });
   }
-  return { count: value.totalVoteCount as number, viewerHasVoted: value.viewerHasVoted };
+  return { options: states };
 }
 
 export async function setAnswer(

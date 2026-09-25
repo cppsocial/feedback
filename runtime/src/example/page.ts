@@ -6,7 +6,6 @@ import { createAuthenticationStatus } from "../auth/status.js";
 import {
   setPollVote,
   setReaction,
-  toggleUpvote as toggleSubjectUpvote,
   viewerSubjectStates,
 } from "../protocol/github.js";
 import type { Reaction, ViewerSubjectState } from "../protocol/github.js";
@@ -32,15 +31,19 @@ const visibility = {
 const reactionTypes: readonly Reaction[] = [
   "THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES",
 ];
+let separateVotes = parameters.get("votes") === "separate";
+const otherReactions = reactionTypes.filter((reaction) =>
+  reaction !== "THUMBS_UP" && reaction !== "THUMBS_DOWN");
 const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
 let selectedKey = keys[0] ?? "";
 let cardViewerStates = new Map<string, ViewerSubjectState>();
+const pendingVotes = new Set<string>();
 const counterOverrides = new Map<string, {
-  upvotes?: number;
-  viewerHasUpvoted?: boolean;
+  up?: number;
+  down?: number;
   reactions: Map<Reaction, { count: number; selected: boolean }>;
 }>();
 required("api-origin").textContent = apiOrigin;
@@ -78,7 +81,19 @@ configureVisibilityButton("toggle-root", "root", "root post");
 configureVisibilityButton("toggle-metadata", "metadata", "metadata");
 configureVisibilityButton("toggle-poll", "poll", "poll");
 configureVisibilityButton("toggle-discussion-actions", "discussionActions", "post actions");
+const voteModeButton = required("toggle-vote-mode") as HTMLButtonElement;
+const refreshVoteMode = (): void => {
+  voteModeButton.textContent = separateVotes ? "Use traditional reactions" : "Separate votes";
+  voteModeButton.setAttribute("aria-pressed", String(separateVotes));
+};
+voteModeButton.addEventListener("click", () => {
+  separateVotes = !separateVotes;
+  refreshVoteMode();
+  void render();
+});
+refreshVoteMode();
 updateAuthenticationUi();
+renderRankingCards(client.cachedReactions(keys));
 void render();
 
 async function submitComment(): Promise<void> {
@@ -113,7 +128,6 @@ async function render(): Promise<void> {
     const token = authentication.token();
     if (token !== null) {
       try {
-        states = await client.syncViewerUpvotes(keys, token);
         const ids = [...states.values()].flatMap((state) => state.id ? [state.id] : []);
         cardViewerStates = new Map(await viewerSubjectStates(token, ids));
       } catch (error) {
@@ -130,7 +144,7 @@ async function render(): Promise<void> {
     let contents = new Map<string, { discussion: Record<string, unknown> }>();
     let contentError: unknown;
     try {
-      contents = new Map(await client.discussionContents(existingKeys));
+      if (existingKeys.length > 0) contents = new Map(await client.discussionContents(existingKeys));
       try {
         await addViewerState([...contents.values()].map((value) => value.discussion));
       } catch (error) {
@@ -176,16 +190,26 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
     const card = document.createElement("article");
     card.className = "ranking-card";
     appendText(card, "h3", key);
-    const button = actionButton(
-      `▲ ${String(state?.upvotes ?? 0)}`,
-      () => upvote(key),
-    );
-    button.className = "card-upvote upvote-control";
-    button.setAttribute("aria-pressed", String(state?.viewerHasUpvoted === true));
-    card.append(button);
+    const votes = document.createElement("div");
+    votes.className = "card-votes";
+    for (const direction of ["up", "down"] as const) {
+      const reaction = direction === "up" ? "THUMBS_UP" : "THUMBS_DOWN";
+      const button = actionButton(
+        `${reactionEmoji(reaction)} ${String(direction === "up" ? state?.up ?? 0 : state?.down ?? 0)}`,
+        () => vote(key, direction),
+      );
+      button.className = "vote-control";
+      button.dataset.voteKey = key;
+      button.disabled = pendingVotes.has(key);
+      button.setAttribute("aria-pressed", String(state?.id
+        ? cardViewerStates.get(state.id)?.reactions.has(reaction) === true : false));
+      votes.append(button);
+    }
+    card.append(votes);
     const reactions = document.createElement("div");
     reactions.className = "reactions";
     for (const [name, count] of Object.entries(state?.reactions ?? {})) {
+      if (name === "THUMBS_UP" || name === "THUMBS_DOWN") continue;
       if (count === 0) continue;
       const selected = state?.id
         ? cardViewerStates.get(state.id)?.reactions.has(name as Reaction) === true
@@ -211,7 +235,7 @@ async function react(key: string, reaction: Reaction, selected: boolean): Promis
     authenticationStatus.refresh();
     updateAuthenticationUi();
     const state = (await client.reactions([key])).get(key);
-    if (!state?.id) throw new Error("Create the discussion with an upvote before reacting.");
+    if (!state?.id) throw new Error("Create the discussion with a vote before reacting.");
     const result = await setReaction(token, state.id, reaction, !selected);
     const override = counterOverride(key);
     override.reactions.set(reaction, { count: result.count, selected: result.viewerHasReacted });
@@ -254,13 +278,15 @@ function renderDiscussion(
   if (visibility.discussionActions) {
     const controls = document.createElement("div");
     controls.className = "post-actions";
-    controls.append(subjectReactionControls(string(content.id), reactionTypes.map((name) => ({
+    controls.append(subjectReactionControls(string(content.id), (separateVotes ? otherReactions : reactionTypes).map((name) => ({
       reaction: name,
-      count: state?.reactions?.[name] ?? 0,
+      count: name === "THUMBS_UP" ? state?.up ?? 0
+        : name === "THUMBS_DOWN" ? state?.down ?? 0 : state?.reactions?.[name] ?? 0,
       selected: viewerReacted(content, name),
     }))));
-    controls.append(subjectUpvoteButton(
-      string(content.id), state?.upvotes ?? 0, state?.viewerHasUpvoted === true,
+    if (separateVotes) controls.append(subjectVoteControls(
+      string(content.id), state?.up ?? 0, state?.down ?? 0,
+      viewerReacted(content, "THUMBS_UP"), viewerReacted(content, "THUMBS_DOWN"),
     ));
     root.append(controls);
   }
@@ -284,7 +310,10 @@ function renderDiscussion(
   }
 }
 
-async function upvote(key: string): Promise<void> {
+async function vote(key: string, direction: "up" | "down"): Promise<void> {
+  if (pendingVotes.has(key)) return;
+  pendingVotes.add(key);
+  setCardPending(key, true);
   try {
     const token = authentication.token() ?? await authentication.authenticate();
     const state = (await client.reactions([key])).get(key);
@@ -294,21 +323,36 @@ async function upvote(key: string): Promise<void> {
       resourceUrl.hash = "";
       await client.ensure({ key, title: key, url: resourceUrl.href }, token.creationGrant);
     }
-    const result = await client.toggleUpvote(key, token);
+    const viewer = state?.id ? cardViewerStates.get(state.id) : undefined;
+    const current = viewer === undefined ? undefined
+      : viewer.reactions.has("THUMBS_UP") ? "up"
+      : viewer.reactions.has("THUMBS_DOWN") ? "down" : null;
+    const result = await client.vote(key, token, direction, current);
     const override = counterOverride(key);
-    override.upvotes = result.count;
-    override.viewerHasUpvoted = result.viewerHasUpvoted;
+    override.up = result.up;
+    override.down = result.down;
+    override.reactions.set("THUMBS_UP", { count: result.up, selected: result.selected === "up" });
+    override.reactions.set("THUMBS_DOWN", { count: result.down, selected: result.selected === "down" });
     authenticationStatus.refresh();
     status.textContent = `Updated ${key}.`;
     await render();
   } catch (error) {
-    status.textContent = error instanceof Error ? error.message : "Unable to upvote.";
+    status.textContent = error instanceof Error ? error.message : "Unable to vote.";
+  } finally {
+    pendingVotes.delete(key);
+    setCardPending(key, false);
+  }
+}
+
+function setCardPending(key: string, pending: boolean): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".card-votes button")) {
+    if (button.dataset.voteKey === key) button.disabled = pending;
   }
 }
 
 function counterOverride(key: string): {
-  upvotes?: number;
-  viewerHasUpvoted?: boolean;
+  up?: number;
+  down?: number;
   reactions: Map<Reaction, { count: number; selected: boolean }>;
 } {
   const existing = counterOverrides.get(key);
@@ -329,9 +373,8 @@ function applyCounterOverrides(
     for (const [reaction, value] of override.reactions) reactions[reaction] = value.count;
     result.set(key, {
       ...state,
-      ...(override.upvotes === undefined ? {} : { upvotes: override.upvotes }),
-      ...(override.viewerHasUpvoted === undefined
-        ? {} : { viewerHasUpvoted: override.viewerHasUpvoted, viewerKnown: true }),
+      ...(override.up === undefined ? {} : { up: override.up }),
+      ...(override.down === undefined ? {} : { down: override.down }),
       reactions,
     });
     if (state.id) {
@@ -369,32 +412,50 @@ function renderPoll(parent: HTMLElement, poll: Record<string, unknown> | null): 
   appendText(parent, "h3", string(poll.question));
   const options = record(poll.options)?.nodes;
   if (!Array.isArray(options)) return;
+  const buttons = new Map<string, HTMLButtonElement>();
+  let pending = false;
+  const refresh = (): void => {
+    for (const option of options) {
+      const value = record(option);
+      if (!value) continue;
+      const button = buttons.get(string(value.id));
+      if (!button) continue;
+      const selected = value.viewerHasVoted === true;
+      button.textContent = `${string(value.option)}: ${String(integer(value.totalVoteCount))} votes`;
+      button.setAttribute("aria-pressed", String(selected));
+      button.disabled = pending || selected;
+    }
+  };
   for (const option of options) {
     const value = record(option);
     if (!value) continue;
-    let selected = value.viewerHasVoted === true;
-    let count = integer(value.totalVoteCount);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "poll-option";
-    const refresh = (): void => {
-      button.textContent = `${string(value.option)}: ${String(count)} votes`;
-      button.setAttribute("aria-pressed", String(selected));
-    };
+    buttons.set(string(value.id), button);
     button.addEventListener("click", () => {
-      if (selected) return;
-      button.disabled = true;
+      if (pending || value.viewerHasVoted === true) return;
+      pending = true;
+      refresh();
       void authenticateAndRun(async (token) => {
         const result = await setPollVote(token, string(value.id), true);
-        selected = result.viewerHasVoted;
-        count = result.count;
+        for (const entry of options) {
+          const current = record(entry);
+          if (!current) continue;
+          const state = result.options.get(string(current.id));
+          if (!state) continue;
+          current.totalVoteCount = state.count;
+          current.viewerHasVoted = state.viewerHasVoted;
+        }
         refresh();
-      }).finally(() => { button.disabled = false; });
+      }).finally(() => {
+        pending = false;
+        refresh();
+      });
     });
-    button.disabled = selected;
-    refresh();
     parent.append(button);
   }
+  refresh();
 }
 
 function renderComment(key: string, comment: Record<string, unknown>, depth: number): HTMLElement {
@@ -439,7 +500,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     }
   }
   if (typeof comment.id === "string") {
-    footerActions.prepend(subjectReactionControls(comment.id, reactionTypes.map((reaction) => {
+    footerActions.prepend(subjectReactionControls(comment.id, (separateVotes ? otherReactions : reactionTypes).map((reaction) => {
       const value = groupMap.get(reaction);
       return {
         reaction,
@@ -447,13 +508,15 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
         selected: value?.viewerHasReacted === true,
       };
     })));
-  }
-  footer.append(footerActions);
-  if (typeof comment.upvoteCount === "number") {
-    footer.append(subjectUpvoteButton(
-      string(comment.id), comment.upvoteCount, comment.viewerHasUpvoted === true,
+    if (separateVotes) footer.append(subjectVoteControls(
+      comment.id,
+      integer(record(groupMap.get("THUMBS_UP")?.reactors)?.totalCount),
+      integer(record(groupMap.get("THUMBS_DOWN")?.reactors)?.totalCount),
+      groupMap.get("THUMBS_UP")?.viewerHasReacted === true,
+      groupMap.get("THUMBS_DOWN")?.viewerHasReacted === true,
     ));
   }
+  footer.append(footerActions);
   article.append(footer);
   const replies = record(comment.replies)?.nodes;
   if (Array.isArray(replies)) {
@@ -470,11 +533,12 @@ function subjectReactionControls(
   initial: readonly { reaction: Reaction; count: number; selected: boolean }[],
 ): HTMLElement {
   const states = new Map(initial.map((value) => [value.reaction, { ...value }]));
+  const available = initial.map((value) => value.reaction);
   const root = document.createElement("div");
   root.className = "reaction-controls";
   const renderControls = (): void => {
     root.replaceChildren();
-    for (const reaction of reactionTypes) {
+    for (const reaction of available) {
       const state = states.get(reaction) ?? { reaction, count: 0, selected: false };
       if (state.count > 0) root.append(reactionButton(state, false));
     }
@@ -486,7 +550,7 @@ function subjectReactionControls(
     picker.append(summary);
     const choices = document.createElement("div");
     choices.className = "reaction-picker-menu";
-    for (const reaction of reactionTypes) {
+    for (const reaction of available) {
       const state = states.get(reaction) ?? { reaction, count: 0, selected: false };
       choices.append(reactionButton(state, true));
     }
@@ -527,32 +591,55 @@ function subjectReactionControls(
   return root;
 }
 
-function subjectUpvoteButton(
+function subjectVoteControls(
   subjectId: string,
-  initialCount: number,
-  initialSelected: boolean,
-): HTMLButtonElement {
-  let selected = initialSelected;
-  let count = initialCount;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "upvote-control";
+  up: number,
+  down: number,
+  upSelected: boolean,
+  downSelected: boolean,
+): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "vote-controls";
+  const buttons = new Map<"up" | "down", HTMLButtonElement>();
+  let pending = false;
   const refresh = (): void => {
-    button.textContent = `▲ ${String(count)}`;
-    button.title = selected ? "Remove upvote" : "Upvote";
-    button.setAttribute("aria-pressed", String(selected));
+    for (const direction of ["up", "down"] as const) {
+      const button = buttons.get(direction);
+      if (!button) continue;
+      button.textContent = `${direction === "up" ? "👍" : "👎"} ${String(direction === "up" ? up : down)}`;
+      button.setAttribute("aria-pressed", String(direction === "up" ? upSelected : downSelected));
+      button.disabled = pending;
+    }
   };
-  button.addEventListener("click", () => {
-    button.disabled = true;
-    void authenticateAndRun(async (token) => {
-      const result = await toggleSubjectUpvote(token, subjectId, selected);
-      selected = result.viewerHasUpvoted;
-      count = result.count;
+  for (const direction of ["up", "down"] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "vote-control";
+    buttons.set(direction, button);
+    button.addEventListener("click", () => {
+      if (pending) return;
+      pending = true;
       refresh();
-    }).finally(() => { button.disabled = false; });
-  });
+      void authenticateAndRun(async (token) => {
+        const reaction = direction === "up" ? "THUMBS_UP" : "THUMBS_DOWN";
+        const other = direction === "up" ? "THUMBS_DOWN" : "THUMBS_UP";
+        const otherSelected = direction === "up" ? downSelected : upSelected;
+        if (otherSelected) {
+          const removed = await setReaction(token, subjectId, other, false);
+          if (direction === "up") { down = removed.count; downSelected = false; }
+          else { up = removed.count; upSelected = false; }
+        }
+        const selected = direction === "up" ? upSelected : downSelected;
+        const result = await setReaction(token, subjectId, reaction, !selected);
+        if (direction === "up") { up = result.count; upSelected = result.viewerHasReacted; }
+        else { down = result.count; downSelected = result.viewerHasReacted; }
+        refresh();
+      }).finally(() => { pending = false; refresh(); });
+    });
+    container.append(button);
+  }
   refresh();
-  return button;
+  return container;
 }
 
 async function authenticateAndRun(
@@ -577,7 +664,7 @@ function renderMissingDiscussion(
 ): void {
   appendText(root, "h2", key);
   appendText(root, "p", "No GitHub discussion exists yet. Anonymous counters still resolve to zero.");
-  appendText(root, "span", `▲ ${String(state?.upvotes ?? 0)}`, "tag");
+  appendText(root, "span", `👍 ${String(state?.up ?? 0)} · 👎 ${String(state?.down ?? 0)}`, "tag");
   const reactions = document.createElement("div");
   reactions.className = "reactions";
   for (const [name, count] of Object.entries(state?.reactions ?? {})) {
@@ -585,7 +672,7 @@ function renderMissingDiscussion(
     tag.title = reactionLabel(name);
   }
   root.append(reactions);
-  const button = actionButton("Sign in and create with first upvote", () => upvote(key));
+  const button = actionButton("Sign in and create with first vote", () => vote(key, "up"));
   button.setAttribute("aria-pressed", "false");
   root.append(button);
 }
@@ -620,7 +707,6 @@ function overlayViewerState(
   state: ViewerSubjectState,
 ): void {
   if (!subject) return;
-  if (state.viewerHasUpvoted !== undefined) subject.viewerHasUpvoted = state.viewerHasUpvoted;
   if (state.viewerHasVoted !== undefined) subject.viewerHasVoted = state.viewerHasVoted;
   const groups = subject.reactionGroups;
   if (!Array.isArray(groups)) return;

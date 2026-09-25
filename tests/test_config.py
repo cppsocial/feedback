@@ -29,7 +29,7 @@ repository = "cppsocial/site"
 repository_id = "R_repo"
 installation_id = 123
 default_category = "resources"
-intents = ["upvotes"]
+intents = ["votes"]
 
 [sites.{site_id}.categories.resources]
 name = "Resources"
@@ -70,15 +70,21 @@ def test_rejects_unknown_service_key(tmp_path: Path) -> None:
 
 
 def test_requires_each_site_to_declare_intents(tmp_path: Path) -> None:
-    without_intents = site().replace('intents = ["upvotes"]\n', "")
+    without_intents = site().replace('intents = ["votes"]\n', "")
 
     with pytest.raises(ConfigError, match="intents is required"):
         load_config(write_config(tmp_path / "sites.toml", without_intents))
 
 
 def test_rejects_ranking_site_with_discussion_intents(tmp_path: Path) -> None:
-    invalid = site().replace('intents = ["upvotes"]', 'intents = ["upvotes", "comments"]')
+    invalid = site().replace('intents = ["votes"]', 'intents = ["votes", "comments"]')
     with pytest.raises(ConfigError, match="requires discussion"):
+        load_config(write_config(tmp_path / "sites.toml", invalid))
+
+
+def test_native_upvote_intent_is_not_supported(tmp_path: Path) -> None:
+    invalid = site().replace('intents = ["votes"]', 'intents = ["upvotes"]')
+    with pytest.raises(ConfigError, match="unsupported intent"):
         load_config(write_config(tmp_path / "sites.toml", invalid))
 
 
@@ -88,7 +94,7 @@ def test_rejects_unknown_default_category_and_template_field(tmp_path: Path) -> 
         load_config(write_config(tmp_path / "sites.toml", unknown))
 
     invalid_template = site().replace(
-        'intents = ["upvotes"]', 'discussion_body = "Hello {unknown}"\nintents = ["upvotes"]'
+        'intents = ["votes"]', 'discussion_body = "Hello {unknown}"\nintents = ["votes"]'
     )
     with pytest.raises(ConfigError, match="may use only"):
         load_config(write_config(tmp_path / "sites.toml", invalid_template))

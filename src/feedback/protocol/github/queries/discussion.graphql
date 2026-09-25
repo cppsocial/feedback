@@ -10,7 +10,6 @@ query FeedbackDiscussion(
   $includeAuthors: Boolean!
   $includeModeration: Boolean!
   $includeCommentReactions: Boolean!
-  $includeCommentUpvotes: Boolean!
 ) {
   nodes(ids: $ids) {
     ... on Discussion {
@@ -27,7 +26,6 @@ query FeedbackDiscussion(
       category { id name }
       labels(first: 100) @include(if: $includeLabels) { nodes { id name color description } }
       reactionGroups @include(if: $includeReactions) { content reactors { totalCount } }
-      upvoteCount
       poll @include(if: $includePolls) {
         question
         totalVoteCount
@@ -43,11 +41,10 @@ query FeedbackDiscussion(
           author @include(if: $includeAuthors) { login avatarUrl ... on User { id } }
           authorAssociation @include(if: $includeAuthors)
           createdAt updatedAt deletedAt
-          isMinimized @include(if: $includeModeration)
+          isMinimized
           minimizedReason @include(if: $includeModeration)
           isAnswer @include(if: $includeAnswers)
           reactionGroups @include(if: $includeCommentReactions) { content reactors { totalCount } }
-          upvoteCount @include(if: $includeCommentUpvotes)
           replies(first: $comments) {
             totalCount
             pageInfo { hasNextPage endCursor }
@@ -57,10 +54,9 @@ query FeedbackDiscussion(
               author @include(if: $includeAuthors) { login avatarUrl ... on User { id } }
               authorAssociation @include(if: $includeAuthors)
               createdAt updatedAt deletedAt
-              isMinimized @include(if: $includeModeration)
+              isMinimized
               minimizedReason @include(if: $includeModeration)
               reactionGroups @include(if: $includeCommentReactions) { content reactors { totalCount } }
-              upvoteCount @include(if: $includeCommentUpvotes)
             }
           }
         }

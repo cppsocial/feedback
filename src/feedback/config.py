@@ -24,7 +24,7 @@ _REACTIONS = frozenset(
 )
 _INTENTS = frozenset(
     {
-        "upvotes",
+        "votes",
         "reactions",
         "discussion",
         "comments",
@@ -33,7 +33,6 @@ _INTENTS = frozenset(
         "authors",
         "moderation",
         "comment_reactions",
-        "comment_upvotes",
         "labels",
         "github_link",
     }
@@ -118,7 +117,7 @@ class SiteConfig:
     refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
     reaction_counters: tuple[str, ...] = ()
-    intents: frozenset[str] = frozenset({"upvotes"})
+    intents: frozenset[str] = frozenset({"votes"})
 
     @property
     def features(self) -> frozenset[str]:
@@ -265,7 +264,9 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             if "reaction_counters" in value
             else ()
         )
-        if any(item not in _REACTIONS for item in reaction_counters):
+        if any(
+            item not in (_REACTIONS - {"THUMBS_UP", "THUMBS_DOWN"}) for item in reaction_counters
+        ):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains an unsupported reaction")
         if len(set(reaction_counters)) != len(reaction_counters):
             raise ConfigError(f"sites.{site_id}.reaction_counters contains duplicates")
@@ -274,15 +275,15 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
         intents = frozenset(_string_list(value, "intents"))
         if not intents or not intents <= _INTENTS:
             raise ConfigError(f"sites.{site_id}.intents contains an unsupported intent")
-        if (intents - {"upvotes", "reactions"}) and "discussion" not in intents:
+        if (intents - {"votes", "reactions"}) and "discussion" not in intents:
             raise ConfigError(
                 f"sites.{site_id}.intents requires discussion for discussion metadata"
             )
         if (
-            {"answers", "authors", "moderation", "comment_reactions", "comment_upvotes"} & intents
+            {"answers", "authors", "moderation", "comment_reactions"} & intents
         ) and "comments" not in intents:
             raise ConfigError(f"sites.{site_id}.intents requires comments for comment metadata")
-        if mode == "ranking" and not intents <= {"upvotes", "reactions"}:
+        if mode == "ranking" and not intents <= {"votes", "reactions"}:
             raise ConfigError(f"sites.{site_id}.intents is incompatible with ranking mode")
         if reaction_counters and "reactions" not in intents:
             raise ConfigError(f"sites.{site_id}.reaction_counters requires reactions intent")

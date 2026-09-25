@@ -18,7 +18,6 @@ class GitHubDiscussion:
     locked: bool
     thumbsup: int
     thumbsdown: int
-    upvotes: int = 0
     reactions: dict[str, int] | None = None
 
 
@@ -106,7 +105,6 @@ class GitHubDiscussions:
                 "includeAuthors": "authors" in site.intents,
                 "includeModeration": "moderation" in site.intents,
                 "includeCommentReactions": "comment_reactions" in site.intents,
-                "includeCommentUpvotes": "comment_upvotes" in site.intents,
             },
         )
 
@@ -140,11 +138,16 @@ def _parse(value: object, site: SiteConfig, category_key: str) -> GitHubDiscussi
     ):
         raise GitHubError("github_malformed_response")
     thumbsup, thumbsdown, reactions = _vote_counts(value.get("reactionGroups"))
-    upvotes = value.get("upvoteCount", 0)
-    if isinstance(upvotes, bool) or not isinstance(upvotes, int) or upvotes < 0:
-        raise GitHubError("github_malformed_response")
+    allowed = {"THUMBS_UP", "THUMBS_DOWN", *site.reaction_counters}
     return GitHubDiscussion(
-        node_id, number, title, url, locked, thumbsup, thumbsdown, upvotes, reactions
+        node_id,
+        number,
+        title,
+        url,
+        locked,
+        thumbsup,
+        thumbsdown,
+        {name: count for name, count in reactions.items() if name in allowed},
     )
 
 

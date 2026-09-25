@@ -8,11 +8,12 @@ use `default_category`.
 
 There are two site modes:
 
-- `ranking` exposes batched native GitHub Discussion upvote counts. It may also
-  expose explicitly selected reaction counts. It has no discussion-content API.
+- `ranking` exposes batched GitHub thumbs-up/down reaction counts as votes. It
+  may also expose explicitly selected other reaction counts. It has no
+  discussion-content API.
 - `discussion` can expose a full thread, post reactions, comments and replies,
   answers, polls, author associations, moderation state, labels, comment
-  reactions/upvotes, and GitHub links. Each extra group is enabled by an intent.
+  reactions, and GitHub links. Each extra group is enabled by an intent.
 
 An unauthenticated visitor can read configured data but cannot mutate it. OAuth
 is initiated only by user interaction. The browser then talks directly to
@@ -32,20 +33,19 @@ in different categories should use category-qualified keys.
 
 | Intent | Returned or enabled data |
 | --- | --- |
-| `upvotes` | Native Discussion `upvoteCount`; required for `/reactions` |
+| `votes` | `THUMBS_UP` and `THUMBS_DOWN` counts; required for `/reactions` |
 | `reactions` | Main-post reaction groups selected by `reaction_counters` |
 | `discussion` | Authoritative thread read and discussion creation |
 | `comments` | Comments and replies |
 | `answers` | Accepted-answer state |
 | `polls` | Poll question, options, and totals |
 | `authors` | Author identity and `authorAssociation` |
-| `moderation` | Minimized state and reason |
+| `moderation` | Moderation reason for visible comments; minimized comments are always excluded |
 | `comment_reactions` | Comment/reply reaction totals |
-| `comment_upvotes` | Comment/reply native upvote totals |
 | `labels` | Discussion labels |
 | `github_link` | Discussion/comment URLs and discussion number in counter results |
 
-Ranking mode accepts only `upvotes` and `reactions`. Discussion metadata intents
+Ranking mode accepts only `votes` and `reactions`. Discussion metadata intents
 require `discussion`; comment-specific metadata requires `comments`. Disabled
 features return 404 and do not add fields to GitHub queries or API responses.
 
@@ -65,7 +65,7 @@ All JSON responses contain `v: 1`. Errors are
 A minimal counter response is:
 
 ```json
-{"v":1,"site":"cpp-social","items":{"resources/42":{"id":"D_...","upvotes":17}}}
+{"v":1,"site":"cpp-social","items":{"resources/42":{"id":"D_...","up":17,"down":2}}}
 ```
 
 `number` is included only for `github_link`; `reactions` is included only when
@@ -76,14 +76,14 @@ with an ETag. Discussion and OAuth responses are `no-store`.
 ## Browser API
 
 `FeedbackClient.reactions(keys)` performs the multi-key service read.
-`createUpvoteControls()` creates accessible buttons, batches their initial read,
-authenticates on activation, creates a missing discussion lazily, and sends the
-native upvote directly to GitHub. `createAuthenticationStatus()` is deliberately
+`createVoteControls()` creates accessible thumbs-up/down buttons, batches their
+initial read, authenticates on activation, creates a missing discussion lazily,
+and sends reactions directly to GitHub. `createAuthenticationStatus()` is deliberately
 independent so a site can mount login/status anywhere.
 
 The package also exports direct, typed GitHub helpers for comment/reply creation,
-comment editing/deletion, reactions, poll votes, accepted answers, native
-upvotes, and batched viewer-upvote state. A discussion UI can compose these
+comment editing/deletion, reactions, poll votes, accepted answers, and batched
+viewer-reaction state. A discussion UI can compose these
 without routing user actions through the service. Authentication tokens are held
 in session storage; counter/viewer snapshots contain no token.
 
@@ -111,5 +111,6 @@ route timing and cache/GitHub-boundary diagnostics.
 
 The database stores discussion identity and aggregate counters only. It does not
 store discussion or comment bodies. Consequently a later request cannot serve a
-cached copy of deleted content; deleted nodes returned by GitHub are represented
-only by their deletion state, and frontend renderers must not render their body.
+cached copy of deleted content. Deleted or minimized comment nodes are excluded
+from discussion responses together with their replies, before the API returns
+the payload; no hidden body is sent to the browser.

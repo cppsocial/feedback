@@ -31,17 +31,18 @@ GitHub's 404 page to users who do not own it, before this service receives a
 callback. After adding or changing the Discussions permission, the repository
 owner must approve the installation's requested permission update. Existing
 browser sessions should then log out and sign in again so their user token is
-issued with the current installation permissions. A `Resource not accessible by
-integration` mutation error is not, by itself, proof that this permission or
-approval is missing. In particular, GitHub may reject `addUpvote` for a GitHub
-App user token even when comments and reactions work. This deployment currently
-uses GitHub App user tokens; native upvote writes remain unverified and must not
-be represented as working until tested with this token type.
+issued with the current installation permissions. Voting uses GitHub thumbs-up
+and thumbs-down reactions because native Discussion upvote mutations are not
+usable with this GitHub App token.
 
 Production SQLite files are persisted in the checkout's `db/` directory. The
 deployment bind-mounts `/srv/feedback/db` to `/data` in the container, so the
 site databases are `/srv/feedback/db/<site-id>.sqlite3`. They are ignored by
 Git and survive container rebuilds and replacement.
+The reaction-backed voting schema is version 5. Existing version-4 SQLite
+files cannot be reused; before deploying this change, archive or remove the
+site database files in `/srv/feedback/db/` while the service is stopped, then
+start the service with fresh files. No automatic destructive migration runs.
 
 The process is configured with explicit command-line arguments rather than
 environment variables. `python -m feedback --help` lists the config, secret-file,
@@ -92,18 +93,21 @@ const resource = resourceFromDocument({
 });
 ```
 
-The bundled example exercises multiple threads, batched native upvotes, main-post
-reactions, labels, polls, comments, minimized/deleted comments, replies, accepted
+The bundled example exercises multiple threads, batched reaction-backed votes,
+reactions, labels, polls, comments, replies, accepted
 answers, author associations, and GitHub links. Supply
 comma-separated resource keys with `keys`:
 
 `https://feedback.cpp.social/example/?site=feedback-cpp-social&keys=feedback%2Fexample%2Cfeedback%2Fexample-two&github=link`
 
 Add `firstPost=hidden` when the host page already represents the discussion's
-opening post. This frontend-only option keeps post reactions, native upvotes,
+opening post. This frontend-only option keeps post reactions and votes,
 poll controls, and comments visible. `title=hidden` also starts with the
 discussion title hidden. The example toolbar can toggle the title, root post,
 metadata, poll, and post actions without another request configuration.
+Add `votes=separate` to display thumbs-up/down as a distinct single-choice vote
+control instead of ordinary reactions in full discussion panels. The example
+toolbar can toggle this mode. Voting cards always use the separate vote control.
 
 ## API and intent configuration
 
@@ -111,7 +115,7 @@ Every site must list its required `intents`. Disabled intents return 404 and do
 not activate their refresh paths. The route contract, intent matrix, and audit
 of every server-side GitHub request path are in [docs/API.md](docs/API.md).
 
-The browser runtime sends user-specific viewer queries, native upvotes, and comments
+The browser runtime sends user-specific viewer queries, reactions, and comments
 directly to GitHub. The service handles OAuth, discussion discovery/creation, and
 shared anonymous reads where caching prevents every visitor consuming a GitHub
 request.
@@ -143,7 +147,7 @@ batch. The default is five seconds.
 `refresh_sweep_seconds` controls the low-priority full maintenance cycle. The
 default is 86400 seconds (daily). The service walks only discussions whose last
 authoritative snapshot is that old, in batches of 50 with pacing between full
-batches. Targeted requests and successful upvotes continue independently.
+batches. Targeted requests and successful votes continue independently.
 
 Browser mutations do not write speculative server values. The next successful
 targeted or maintenance refresh replaces counters with GitHub's absolute counts.
@@ -151,18 +155,10 @@ Counter responses use `no-cache`, so
 browsers revalidate with this service; that does not imply a GitHub request while
 the relevant snapshot remains fresh.
 
-The browser runtime keeps the last counter snapshot and the last confirmed viewer
-native-upvote state in local storage for up to seven days. Consumers can render them
-synchronously while the API request is in flight, avoiding a flash of zero counters
-or unselected vote buttons. Snapshots contain only the site/resource key, discussion
-node ID, counts, viewer state, and save time; authentication tokens are not part of
-this cache. Storage is optional and failures fall back to the network normally.
-
-Once authenticated, the runtime also resolves the current user's native-upvote
-state for all visible discussions in one batched GitHub query. That viewer-specific
-snapshot is reused for five minutes, including across reloads, and then refreshed
-on demand. This makes reactions created on GitHub or another device visible without
-turning every counter request into an authenticated GitHub request.
+The browser runtime keeps the last anonymous counter snapshot in local storage for
+up to seven days and renders cards synchronously before the batched API request.
+Snapshots contain no token or viewer identity. Once authenticated, viewer reaction
+state for the visible discussions is fetched in a batched GitHub query.
 
 Operational logs are emitted at GitHub boundaries rather than for every HTTP
 request. Reaction-refresh lines include the site, trigger (`requested` or

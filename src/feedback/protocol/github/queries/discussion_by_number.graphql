@@ -7,7 +7,6 @@ query FeedbackDiscussionByNumber($repository: ID!, $number: Int!) {
         title
         url
         locked
-        upvoteCount
         repository { id }
         category { id }
         reactionGroups {

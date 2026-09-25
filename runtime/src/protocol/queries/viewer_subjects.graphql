@@ -4,7 +4,6 @@ query FeedbackViewerSubjects($ids: [ID!]!) {
     ... on Reactable {
       reactionGroups { content viewerHasReacted }
     }
-    ... on Votable { viewerHasUpvoted }
     ... on DiscussionPollOption { viewerHasVoted }
   }
 }

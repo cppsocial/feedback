@@ -11,7 +11,7 @@
   <body>
     <main>
       <h1>Feedback integration example</h1>
-      <p>This page exercises batched native upvotes, multiple discussion threads, reactions, labels, polls, comments, minimized or deleted comments, replies, accepted answers, and GitHub links.</p>
+      <p>This page exercises batched reaction-backed votes, multiple discussion threads, reactions, labels, polls, comments, replies, answers, and GitHub links.</p>
       <p>API: <code id="api-origin"></code></p>
       <div id="authentication-status" class="authentication-status"></div>
       <h2>Voting and reaction cards</h2>
@@ -25,6 +25,7 @@
         <button id="toggle-metadata" type="button" aria-pressed="false">Hide metadata</button>
         <button id="toggle-poll" type="button" aria-pressed="false">Hide poll</button>
         <button id="toggle-discussion-actions" type="button" aria-pressed="false">Hide post actions</button>
+        <button id="toggle-vote-mode" type="button" aria-pressed="false">Separate votes</button>
       </div>
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">

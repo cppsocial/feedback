@@ -7,7 +7,6 @@ CREATE TABLE discussions (
     locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
     thumbsup INTEGER NOT NULL DEFAULT 0 CHECK (thumbsup >= 0),
     thumbsdown INTEGER NOT NULL DEFAULT 0 CHECK (thumbsdown >= 0),
-    upvotes INTEGER NOT NULL DEFAULT 0 CHECK (upvotes >= 0),
     updated_at INTEGER, fetched_at INTEGER NOT NULL,
     UNIQUE (category_key, lookup_term)
 ) STRICT, WITHOUT ROWID;
@@ -22,5 +21,5 @@ CREATE TABLE reactions (
 CREATE INDEX reactions_by_discussion ON reactions (object_id, reaction);
 CREATE INDEX discussions_by_lookup ON discussions (category_key, lookup_term);
 
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 COMMIT;

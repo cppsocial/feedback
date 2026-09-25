@@ -132,7 +132,7 @@ async def test_concurrent_content_reads_share_a_cached_github_request(
 
 
 @pytest.mark.asyncio
-async def test_deleted_comment_content_is_never_returned(config: Config, tmp_path: Path) -> None:
+async def test_hidden_comments_and_replies_are_excluded(config: Config, tmp_path: Path) -> None:
     database = SiteDatabase(tmp_path / "site.sqlite3")
     database.migrate()
     database.put_discussion(
@@ -152,6 +152,7 @@ async def test_deleted_comment_content_is_never_returned(config: Config, tmp_pat
                 "nodes": [
                     {
                         "comments": {
+                            "totalCount": 3,
                             "nodes": [
                                 {
                                     "id": "DC_deleted",
@@ -160,9 +161,26 @@ async def test_deleted_comment_content_is_never_returned(config: Config, tmp_pat
                                     "bodyHTML": "<p>must not escape</p>",
                                     "url": "https://github.test/leak",
                                     "author": {"login": "former-author"},
-                                    "replies": {"nodes": []},
-                                }
-                            ]
+                                    "replies": {"nodes": [{"id": "DC_orphan"}]},
+                                },
+                                {
+                                    "id": "DC_minimized",
+                                    "isMinimized": True,
+                                    "body": "also must not escape",
+                                    "replies": {"nodes": [{"id": "DC_hidden_reply"}]},
+                                },
+                                {
+                                    "id": "DC_visible",
+                                    "body": "visible",
+                                    "replies": {
+                                        "totalCount": 2,
+                                        "nodes": [
+                                            {"id": "DC_reply", "body": "visible reply"},
+                                            {"id": "DC_deleted_reply", "deletedAt": "now"},
+                                        ],
+                                    },
+                                },
+                            ],
                         }
                     }
                 ]
@@ -171,11 +189,19 @@ async def test_deleted_comment_content_is_never_returned(config: Config, tmp_pat
     result = await DiscussionService(DeletedContent()).content(
         config.sites["cpp-social"], database, "feedback/example"
     )
-    deleted = result["nodes"][0]["comments"]["nodes"][0]
-    assert deleted == {
-        "id": "DC_deleted",
-        "deletedAt": "2026-01-01T00:00:00Z",
-        "replies": {"nodes": []},
+    comments = result["nodes"][0]["comments"]
+    assert comments == {
+        "totalCount": 1,
+        "nodes": [
+            {
+                "id": "DC_visible",
+                "body": "visible",
+                "replies": {
+                    "totalCount": 1,
+                    "nodes": [{"id": "DC_reply", "body": "visible reply"}],
+                },
+            }
+        ],
     }
 
 

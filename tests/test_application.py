@@ -28,7 +28,8 @@ def test_configured_known_discussion_is_available_with_a_fresh_database(config: 
 
     assert response.json()["items"]["feedback/example"] == {
         "id": "D_example",
-        "upvotes": 0,
+        "up": 0,
+        "down": 0,
     }
 
 
@@ -59,7 +60,8 @@ def test_reactions_returns_sorted_deduplicated_cached_and_unknown_items(
     assert list(response.json()["items"]) == ["known", "unknown"]
     assert response.json()["items"]["known"] == {
         "id": "D_known",
-        "upvotes": 0,
+        "up": 4,
+        "down": 1,
     }
     assert response.json()["items"]["unknown"]["id"] is None
 

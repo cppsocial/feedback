@@ -1,5 +1,0 @@
-query FeedbackViewerUpvotes($ids: [ID!]!) {
-  nodes(ids: $ids) {
-    ... on Discussion { id viewerHasUpvoted }
-  }
-}

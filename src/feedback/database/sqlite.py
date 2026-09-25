@@ -11,7 +11,7 @@ from feedback.database.migrations import scripts
 from feedback.database.queries import load
 
 MIGRATIONS = scripts()
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 REACTIONS = load("reactions")
 DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
@@ -30,7 +30,6 @@ class ReactionCounts:
     number: int
     thumbsup: int
     thumbsdown: int
-    upvotes: int
     fetched_at: int
     reactions: dict[str, int]
 
@@ -89,9 +88,8 @@ class SiteDatabase:
                 number=row[2],
                 thumbsup=row[3],
                 thumbsdown=row[4],
-                upvotes=row[5],
-                fetched_at=row[6],
-                reactions=json.loads(row[7]),
+                fetched_at=row[5],
+                reactions=json.loads(row[6]),
             )
             for row in rows
         }
@@ -114,9 +112,8 @@ class SiteDatabase:
                     number=row[2],
                     thumbsup=row[3],
                     thumbsdown=row[4],
-                    upvotes=row[5],
-                    fetched_at=row[6],
-                    reactions=json.loads(row[7]),
+                    fetched_at=row[5],
+                    reactions=json.loads(row[6]),
                 ),
             )
             for row in rows
@@ -134,7 +131,6 @@ class SiteDatabase:
         url: str,
         up: int = 0,
         down: int = 0,
-        upvotes: int = 0,
         reactions: dict[str, int] | None = None,
         fetched_at: int | None = None,
     ) -> None:
@@ -155,10 +151,6 @@ class SiteDatabase:
                     fetched,
                 ),
             )
-            connection.execute(
-                "UPDATE discussions SET upvotes = ? WHERE resource_id = ?",
-                (upvotes, resource_id),
-            )
             if reactions:
                 connection.executemany(
                     "INSERT OR REPLACE INTO reactions "
@@ -173,7 +165,6 @@ class SiteDatabase:
         node_id: str,
         thumbsup: int,
         thumbsdown: int,
-        upvotes: int,
         reactions: dict[str, tuple[int, tuple[str, ...]]],
         locked: bool,
         updated_at: int | None,
@@ -182,7 +173,7 @@ class SiteDatabase:
         with self.connect() as connection:
             cursor = connection.execute(
                 UPDATE_REACTIONS,
-                (thumbsup, thumbsdown, upvotes, locked, updated_at, fetched_at, node_id),
+                (thumbsup, thumbsdown, locked, updated_at, fetched_at, node_id),
             )
             if cursor.rowcount == 1:
                 connection.execute(

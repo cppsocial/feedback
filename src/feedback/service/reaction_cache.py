@@ -46,7 +46,7 @@ class ReactionRefresher:
             data = await self._github.graphql(
                 site.installation_id,
                 _NODES_QUERY,
-                {"ids": chunk, "includeReactions": bool(site.reaction_counters)},
+                {"ids": chunk},
             )
             nodes = data.get("nodes")
             if not isinstance(nodes, list):
@@ -56,13 +56,13 @@ class ReactionRefresher:
                 parsed = _parse_node(node)
                 if parsed is None:
                     continue
-                node_id, thumbsup, thumbsdown, upvotes, reactions, locked, updated_at = parsed
+                node_id, thumbsup, thumbsdown, reactions, locked, updated_at = parsed
+                allowed = {"THUMBS_UP", "THUMBS_DOWN", *site.reaction_counters}
                 refreshed += database.update_reactions(
                     node_id=node_id,
                     thumbsup=thumbsup,
                     thumbsdown=thumbsdown,
-                    upvotes=upvotes,
-                    reactions=reactions,
+                    reactions={name: state for name, state in reactions.items() if name in allowed},
                     locked=locked,
                     updated_at=updated_at,
                     fetched_at=fetched_at,
@@ -72,7 +72,7 @@ class ReactionRefresher:
 
 def _parse_node(
     value: object,
-) -> tuple[str, int, int, int, dict[str, tuple[int, tuple[str, ...]]], bool, int | None] | None:
+) -> tuple[str, int, int, dict[str, tuple[int, tuple[str, ...]]], bool, int | None] | None:
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -112,14 +112,10 @@ def _parse_node(
             updated_at = int(datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp())
         except ValueError as exc:
             raise GitHubError("github_malformed_response") from exc
-    upvotes = value.get("upvoteCount", 0)
-    if isinstance(upvotes, bool) or not isinstance(upvotes, int) or upvotes < 0:
-        raise GitHubError("github_malformed_response")
     return (
         node_id,
         counts.get("THUMBS_UP", (0, ()))[0],
         counts.get("THUMBS_DOWN", (0, ()))[0],
-        upvotes,
         counts,
         locked,
         updated_at,

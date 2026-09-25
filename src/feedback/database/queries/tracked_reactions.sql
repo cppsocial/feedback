@@ -1,4 +1,4 @@
-SELECT d.resource_id, d.id, d.number, d.thumbsup, d.thumbsdown, d.upvotes, d.fetched_at,
+SELECT d.resource_id, d.id, d.number, d.thumbsup, d.thumbsdown, d.fetched_at,
 	   COALESCE(json_group_object(r.reaction, r.count) FILTER (WHERE r.reaction IS NOT NULL), '{}')
 FROM discussions d
 LEFT JOIN (

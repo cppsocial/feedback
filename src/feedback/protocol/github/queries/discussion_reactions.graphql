@@ -1,11 +1,10 @@
-query FeedbackDiscussionReactions($ids: [ID!]!, $includeReactions: Boolean!) {
+query FeedbackDiscussionReactions($ids: [ID!]!) {
   nodes(ids: $ids) {
     ... on Discussion {
       id
       locked
       updatedAt
-      upvoteCount
-      reactionGroups @include(if: $includeReactions) {
+      reactionGroups {
         content
         reactors { totalCount }
       }

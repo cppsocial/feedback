@@ -17,7 +17,7 @@ const apiOrigin = apiParameter === null
   ? "https://feedback-api.cpp.social"
   : trustedOrigin(apiParameter, "example API origin");
 const keys = [...new Set(
-  (parameters.get("keys") ?? parameters.get("key") ?? "feedback/example,feedback/documentation,poll/test,q-and-a/foo,q-and-a/test,feedback/not-created")
+  (parameters.get("keys") ?? parameters.get("key") ?? "feedback/example,feedback/documentation,feedback/navigation,feedback/design,poll/test,q-and-a/foo,q-and-a/test,feedback/not-created")
     .split(",").map((value) => value.trim()).filter(Boolean),
 )];
 const githubMode = parameters.get("github") ?? "link";
@@ -237,11 +237,13 @@ async function render(force = false): Promise<void> {
 function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
   const root = required("cards");
   root.replaceChildren();
-  for (const key of keys) {
+  for (const key of [...keys].sort((a, b) =>
+    Number(states.get(b)?.pinnedToCategory === true) - Number(states.get(a)?.pinnedToCategory === true))) {
     const state = states.get(key);
     const card = document.createElement("article");
     card.className = "ranking-card";
     appendText(card, "h3", key);
+    if (state?.pinnedToCategory) appendText(card, "small", "Pinned to category");
     const votes = document.createElement("div");
     votes.className = "card-votes";
     for (const direction of ["up", "down"] as const) {

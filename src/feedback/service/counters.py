@@ -17,6 +17,8 @@ def counter_items(
         }
         if "github_link" in site.intents:
             value["number"] = item.number if item else None
+        if "category_pins" in site.intents:
+            value["pinnedToCategory"] = item.pinned_to_category if item else False
         if site.reaction_counters:
             value["reactions"] = {
                 name: item.reactions.get(name, 0) if item else 0 for name in site.reaction_counters

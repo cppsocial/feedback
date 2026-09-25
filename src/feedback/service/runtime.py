@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from feedback.config import Config, SiteConfig
 from feedback.database.sqlite import ReactionCounts, SiteDatabase
 from feedback.protocol.github.oauth import OAuthClient
+from feedback.service.category_pins import CategoryPinRefresher
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner
 from feedback.service.reaction_cache import ReactionRefresher
@@ -25,6 +26,7 @@ class FeedbackRuntime:
     refresher: ReactionRefresher | None = None
     grants: CreationGrantSigner | None = None
     discussions: DiscussionService | None = None
+    pins: CategoryPinRefresher | None = None
     _refresh_tasks: dict[str, asyncio.Task[int]] = field(default_factory=dict)
     _refresh_last: dict[tuple[str, str], float] = field(default_factory=dict)
     _sweep_task: asyncio.Task[None] | None = None
@@ -62,6 +64,10 @@ class FeedbackRuntime:
             )
             return
         await self._refresh_batch(site, eligible, reason="requested")
+
+    async def refresh_pins(self, site: SiteConfig, keys: list[str]) -> None:
+        if "category_pins" in site.intents and self.pins is not None:
+            await self.pins.refresh_stale(site, self.databases[site.id], keys)
 
     async def sweep_once(self) -> None:
         if self.refresher is None:
@@ -154,3 +160,5 @@ class FeedbackRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._sweep_task is not None:
             await asyncio.gather(self._sweep_task, return_exceptions=True)
+        if self.pins is not None:
+            await self.pins.close()

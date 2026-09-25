@@ -21,5 +21,15 @@ CREATE TABLE reactions (
 CREATE INDEX reactions_by_discussion ON reactions (object_id, reaction);
 CREATE INDEX discussions_by_lookup ON discussions (category_key, lookup_term);
 
-PRAGMA user_version = 6;
+CREATE TABLE category_pin_snapshots (
+    category_key TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL, etag TEXT
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE category_pins (
+    category_key TEXT NOT NULL, number INTEGER NOT NULL CHECK (number > 0),
+    PRIMARY KEY (category_key, number),
+    FOREIGN KEY (category_key) REFERENCES category_pin_snapshots (category_key) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+PRAGMA user_version = 7;
 COMMIT;

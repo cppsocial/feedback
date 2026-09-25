@@ -22,8 +22,9 @@ discussion_body = "Discussion for [{title}]({url})."
 # cache_fresh_seconds = 60
 # refresh_cooldown_seconds = 60
 # refresh_sweep_seconds = 86400
+# pin_cache_seconds = 3600
 # max_batch_size = 100
-intents = ["votes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "labels", "github_link"]
+intents = ["votes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "labels", "github_link", "category_pins"]
 reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
 # Optional: pre-register discussions whose stable numeric and node IDs are known
 # so anonymous reads work immediately after starting with an empty database.
@@ -34,6 +35,7 @@ reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
 [sites.example.categories.articles]
 name = "Articles"
 id = "replace-with-articles-category-node-id"
+# slug = "articles" # Set when the GitHub URL slug differs from this key.
 
 [sites.example.categories.tips]
 name = "Tips"

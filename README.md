@@ -133,9 +133,16 @@ held in a bounded ten-second memory cache keyed by discussion ID, so a recently
 deleted comment may remain visible briefly. Identical concurrent reads share an
 in-flight GitHub call.
 
-This revision uses schema version 6. It does not migrate existing version 5
+This revision uses schema version 7. It does not migrate existing older
 databases. Remove the service's SQLite database files before starting this build;
 configured `known_discussions` are seeded again and counters refill from GitHub.
+
+When `category_pins` is enabled for a site, the same batched counter response
+includes `pinnedToCategory` for each card. The service reads GitHub's public
+category page once per requested category per `pin_cache_seconds` (default one
+hour), using ETags when available. Concurrent requests share a refresh. Failed
+refreshes retain the last good snapshot and wait five minutes before retrying.
+This uses the category's pinned list, so repository-wide pins do not affect it.
 
 `cache_fresh_seconds` is the age at which a requested tracked counter needs an
 authoritative GitHub refresh. The default is 60 seconds. A batched request

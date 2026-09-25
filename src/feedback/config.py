@@ -35,6 +35,7 @@ _INTENTS = frozenset(
         "comment_reactions",
         "labels",
         "github_link",
+        "category_pins",
     }
 )
 _SERVICE_KEYS = frozenset(
@@ -66,6 +67,7 @@ _SITE_KEYS = frozenset(
         "refresh_sweep_seconds",
         "max_batch_size",
         "reaction_counters",
+        "pin_cache_seconds",
         "intents",
     }
 )
@@ -88,6 +90,7 @@ class CategoryConfig:
     key: str
     name: str
     node_id: str
+    slug: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +120,7 @@ class SiteConfig:
     refresh_sweep_seconds: int = 86_400
     max_batch_size: int = 100
     reaction_counters: tuple[str, ...] = ()
+    pin_cache_seconds: int = 3600
     intents: frozenset[str] = frozenset({"votes"})
 
     @property
@@ -195,7 +199,9 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
         if mapping not in _MAPPINGS:
             raise ConfigError(f"sites.{site_id}.mapping is unsupported")
         repository = _string(value, "repository")
-        if repository.count("/") != 1 or any(not part for part in repository.split("/")):
+        if repository.count("/") != 1 or any(
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", part) for part in repository.split("/")
+        ):
             raise ConfigError(f"sites.{site_id}.repository must be owner/name")
         categories_raw = _table(value, "categories")
         if not categories_raw:
@@ -207,12 +213,16 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             if not isinstance(category_value, dict):
                 raise ConfigError(f"sites.{site_id}.categories.{category_key} must be a table")
             _reject_keys(
-                category_value, {"name", "id"}, f"sites.{site_id}.categories.{category_key}"
+                category_value, {"name", "id", "slug"}, f"sites.{site_id}.categories.{category_key}"
             )
+            slug = _string(category_value, "slug") if "slug" in category_value else category_key
+            if not _SITE_ID.fullmatch(slug):
+                raise ConfigError(f"sites.{site_id}.categories.{category_key}.slug is invalid")
             categories[category_key] = CategoryConfig(
                 category_key,
                 _string(category_value, "name"),
                 _string(category_value, "id"),
+                slug,
             )
         if len({category.name for category in categories.values()}) != len(categories):
             raise ConfigError(f"sites.{site_id}.categories contains duplicate names")
@@ -275,7 +285,7 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
         intents = frozenset(_string_list(value, "intents"))
         if not intents or not intents <= _INTENTS:
             raise ConfigError(f"sites.{site_id}.intents contains an unsupported intent")
-        if (intents - {"votes", "reactions"}) and "discussion" not in intents:
+        if (intents - {"votes", "reactions", "category_pins"}) and "discussion" not in intents:
             raise ConfigError(
                 f"sites.{site_id}.intents requires discussion for discussion metadata"
             )
@@ -283,7 +293,7 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             {"answers", "authors", "moderation", "comment_reactions"} & intents
         ) and "comments" not in intents:
             raise ConfigError(f"sites.{site_id}.intents requires comments for comment metadata")
-        if mode == "ranking" and not intents <= {"votes", "reactions"}:
+        if mode == "ranking" and not intents <= {"votes", "reactions", "category_pins"}:
             raise ConfigError(f"sites.{site_id}.intents is incompatible with ranking mode")
         if reaction_counters and "reactions" not in intents:
             raise ConfigError(f"sites.{site_id}.reaction_counters requires reactions intent")
@@ -307,6 +317,7 @@ def load_config(path: Path | str, *, data_directory: Path | None = None) -> Conf
             ),
             max_batch_size=_bounded_int(value, "max_batch_size", 1, 100, 100),
             reaction_counters=reaction_counters,
+            pin_cache_seconds=_bounded_int(value, "pin_cache_seconds", 300, 86_400, 3600),
             intents=intents,
         )
 

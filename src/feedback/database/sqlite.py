@@ -11,7 +11,7 @@ from feedback.database.migrations import scripts
 from feedback.database.queries import load
 
 MIGRATIONS = scripts()
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 REACTIONS = load("reactions")
 DISCUSSION = load("discussion")
 PUT_DISCUSSION = load("put_discussion")
@@ -31,6 +31,7 @@ class ReactionCounts:
     thumbsdown: int
     fetched_at: int
     reactions: dict[str, int]
+    pinned_to_category: bool = False
 
     @property
     def up(self) -> int:
@@ -89,6 +90,7 @@ class SiteDatabase:
                 thumbsdown=row[4],
                 fetched_at=row[5],
                 reactions=json.loads(row[6]),
+                pinned_to_category=bool(row[7]),
             )
             for row in rows
         }
@@ -113,10 +115,54 @@ class SiteDatabase:
                     thumbsdown=row[4],
                     fetched_at=row[5],
                     reactions=json.loads(row[6]),
+                    pinned_to_category=bool(row[7]),
                 ),
             )
             for row in rows
         ]
+
+    def categories_for(self, resource_ids: Iterable[str]) -> set[str]:
+        keys = tuple(resource_ids)
+        if not keys:
+            return set()
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT category_key FROM discussions "
+                "WHERE resource_id IN (SELECT value FROM json_each(?))",
+                (json.dumps(keys),),
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def pin_snapshot(self, category_key: str) -> tuple[int, str | None] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT fetched_at, etag FROM category_pin_snapshots WHERE category_key = ?",
+                (category_key,),
+            ).fetchone()
+        return (int(row[0]), row[1]) if row is not None else None
+
+    def replace_category_pins(
+        self, category_key: str, numbers: set[int], etag: str | None, fetched_at: int
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO category_pin_snapshots (category_key, fetched_at, etag) "
+                "VALUES (?, ?, ?) ON CONFLICT (category_key) DO UPDATE SET "
+                "fetched_at = excluded.fetched_at, etag = excluded.etag",
+                (category_key, fetched_at, etag),
+            )
+            connection.execute("DELETE FROM category_pins WHERE category_key = ?", (category_key,))
+            connection.executemany(
+                "INSERT INTO category_pins (category_key, number) VALUES (?, ?)",
+                [(category_key, number) for number in sorted(numbers)],
+            )
+
+    def touch_category_pins(self, category_key: str, fetched_at: int) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE category_pin_snapshots SET fetched_at = ? WHERE category_key = ?",
+                (fetched_at, category_key),
+            )
 
     def put_discussion(
         self,

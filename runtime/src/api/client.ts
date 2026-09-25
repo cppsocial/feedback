@@ -13,6 +13,7 @@ interface CounterState {
   up: number;
   down: number;
   reactions?: Record<string, number>;
+  pinnedToCategory?: boolean;
 }
 
 export type ReactionState = CounterState;
@@ -344,6 +345,7 @@ function isCounterState(value: unknown): value is CounterState {
       Number.isSafeInteger(state.number) && state.number > 0) &&
     Number.isSafeInteger(state.up) && (state.up ?? -1) >= 0 &&
     Number.isSafeInteger(state.down) && (state.down ?? -1) >= 0 &&
+    (state.pinnedToCategory === undefined || typeof state.pinnedToCategory === "boolean") &&
     (state.reactions === undefined || typeof state.reactions === "object")
   );
 }

@@ -17,7 +17,7 @@ repository_id = "R_kgDOUc9png"
 installation_id = 162105624
 default_category = "general"
 discussion_body = "Feedback for [{title}]({url})"
-intents = ["votes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "labels", "github_link"]
+intents = ["votes", "reactions", "discussion", "comments", "answers", "polls", "authors", "moderation", "comment_reactions", "labels", "github_link", "category_pins"]
 reaction_counters = ["LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES"]
 known_discussions = [
   { key = "feedback/example", id = "D_kwDOUc9pns4ApUHg", number = 1, category = "general", title = "feedback/example" },

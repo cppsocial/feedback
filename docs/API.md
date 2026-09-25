@@ -25,6 +25,7 @@ GitHub token after exchange and provides no general user-token proxy.
 | Principal | Permission used | Operation |
 | --- | --- | --- |
 | GitHub App installation | Discussions read | Find discussions, read threads, reactions, polls, labels, and author data |
+| No GitHub credential | Public category page read | Refresh category pin flags when `category_pins` is enabled |
 | GitHub App installation | Discussions write | Create a discussion after a signed creation grant |
 | Signed-in GitHub user | Discussions read/write on the target repository | Read viewer state; vote, react, comment, reply, edit, delete, and mark answers where GitHub permits |
 | Browser on an allowed site origin | Service read routes | Read public counters and threads without signing in |
@@ -61,10 +62,22 @@ in different categories should use category-qualified keys.
 | `comment_reactions` | Comment/reply reaction totals |
 | `labels` | Discussion labels |
 | `github_link` | Discussion/comment URLs and discussion number in counter results |
+| `category_pins` | `pinnedToCategory` boolean in batched counter results, available anonymously |
 
-Ranking mode accepts only `votes` and `reactions`. Discussion metadata intents
+Ranking mode accepts `votes`, `reactions`, and `category_pins`. Discussion metadata intents
 require `discussion`; comment-specific metadata requires `comments`. Disabled
 features return 404 and do not add fields to GitHub queries or API responses.
+`reaction_counters` selects individual non-vote reaction fields; `github_link`
+selects link and number fields; `category_pins` selects the pin flag. A category
+may set `slug` when its GitHub URL slug differs from its local key.
+
+GitHub's public GraphQL discussion schema does not expose category pins. When
+enabled, the service reads the pinned list from each requested category's public
+GitHub page, bounded to one page per category per hour by default. It requests
+only categories present in the card batch, uses ETags when available, coalesces
+concurrent refreshes, and keeps the last good snapshot on failure. Repository-wide
+pins are excluded. The page parser is a compatibility boundary; monitor the
+refresh warning if GitHub changes its HTML.
 
 ## HTTP routes
 

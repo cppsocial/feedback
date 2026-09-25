@@ -20,6 +20,7 @@ async def get_reactions(request: Request) -> Response:
     cached = context.database.reactions(keys)
     with suppress(GitHubError):
         await context.runtime.refresh_stale(context.site, cached)
+    await context.runtime.refresh_pins(context.site, keys)
     payload = {
         "v": 1,
         "site": context.site.id,

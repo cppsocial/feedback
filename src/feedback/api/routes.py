@@ -11,6 +11,7 @@ from feedback.api.endpoints.oauth import (
     exchange_options,
 )
 from feedback.api.endpoints.reactions import get_reactions, options_reactions
+from feedback.api.endpoints.webhooks import github_webhook
 
 
 class ApiRoute(Route):
@@ -21,6 +22,7 @@ class ApiRoute(Route):
 
 
 API_ROUTES = (
+    ApiRoute("/v1/github/webhook", github_webhook, method="POST"),
     ApiRoute("/v1/sites/{site}/reactions", get_reactions, method="GET"),
     ApiRoute("/v1/sites/{site}/reactions", options_reactions, method="OPTIONS"),
     ApiRoute("/v1/sites/{site}/oauth/authorize", authorize, method="POST"),

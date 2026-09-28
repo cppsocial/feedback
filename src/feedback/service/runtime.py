@@ -13,6 +13,7 @@ from feedback.service.category_pins import CategoryPinRefresher
 from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner
 from feedback.service.reaction_cache import ReactionRefresher
+from feedback.service.webhooks import GitHubWebhookHandler
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -27,6 +28,7 @@ class FeedbackRuntime:
     grants: CreationGrantSigner | None = None
     discussions: DiscussionService | None = None
     pins: CategoryPinRefresher | None = None
+    webhooks: GitHubWebhookHandler | None = None
     _refresh_tasks: dict[str, asyncio.Task[int]] = field(default_factory=dict)
     _refresh_last: dict[tuple[str, str], float] = field(default_factory=dict)
     _sweep_task: asyncio.Task[None] | None = None

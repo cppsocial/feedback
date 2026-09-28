@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from types import MappingProxyType
 
@@ -73,3 +74,48 @@ async def test_category_pins_are_cached_and_scoped_to_the_category(tmp_path: Pat
         assert len(requests) == 2
         assert database.pin_snapshot("general") == (5000, '"pins-1"')
         assert database.reactions(keys)["feedback/design"].pinned_to_category is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_invalidation_survives_inflight_refresh(tmp_path: Path) -> None:
+    database = SiteDatabase(tmp_path / "pins.sqlite3")
+    database.migrate()
+    database.put_discussion(
+        resource_id="feedback/design",
+        category_key="general",
+        lookup_term="feedback/design",
+        node_id="D_4",
+        number=4,
+        title="feedback/design",
+        url="https://github.com/cppsocial/feedback/discussions/4",
+    )
+    site = SiteConfig(
+        id="feedback",
+        origins=("https://feedback.example.com",),
+        mode="discussion",
+        mapping="key",
+        repository="cppsocial/feedback",
+        repository_id="R_feedback",
+        installation_id=1,
+        categories=MappingProxyType(
+            {"general": CategoryConfig("general", "General", "DIC_general")}
+        ),
+        default_category="general",
+        intents=frozenset({"votes", "category_pins"}),
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(_: httpx.Request) -> httpx.Response:
+        started.set()
+        await release.wait()
+        return httpx.Response(200, text='<div id="discussions-list"></div>')
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        refresher = CategoryPinRefresher(http, clock=lambda: 1000)
+        task = asyncio.create_task(refresher.refresh_stale(site, database, ["feedback/design"]))
+        await started.wait()
+        refresher.invalidate(site, database, "General")
+        release.set()
+        await task
+        assert database.pin_snapshot("general") == (0, None)

@@ -49,7 +49,24 @@ class CategoryPinRefresher:
         self.clock = clock
         self._tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
         self._retry_after: dict[tuple[str, str], float] = {}
+        self._generation: dict[tuple[str, str], int] = {}
         self._limit = asyncio.Semaphore(2)
+
+    def invalidate(
+        self, site: SiteConfig, database: SiteDatabase, category_name: str | None
+    ) -> None:
+        categories = [
+            category.key
+            for category in site.categories.values()
+            if category_name is None or category.name == category_name
+        ]
+        if not categories:
+            categories = list(site.categories)
+        for category in categories:
+            identity = (site.id, category)
+            self._generation[identity] = self._generation.get(identity, 0) + 1
+            self._retry_after.pop(identity, None)
+            database.expire_category_pins(category)
 
     async def refresh_stale(
         self, site: SiteConfig, database: SiteDatabase, keys: list[str]
@@ -68,7 +85,9 @@ class CategoryPinRefresher:
                 continue
             if now < self._retry_after.get(identity, 0):
                 continue
-            task = asyncio.create_task(self._refresh(site, database, category, snapshot))
+            task = asyncio.create_task(
+                self._refresh(site, database, category, snapshot, self._generation.get(identity, 0))
+            )
             self._tasks[identity] = task
             tasks.append(task)
         if tasks:
@@ -80,6 +99,7 @@ class CategoryPinRefresher:
         database: SiteDatabase,
         category: str,
         snapshot: tuple[int, str | None] | None,
+        generation: int,
     ) -> None:
         slug = site.categories[category].slug or category
         url = f"https://github.com/{site.repository}/discussions/categories/{slug}"
@@ -108,6 +128,9 @@ class CategoryPinRefresher:
                 category,
                 type(error).__name__,
             )
+        finally:
+            if self._generation.get((site.id, category), 0) != generation:
+                database.expire_category_pins(category)
 
     async def close(self) -> None:
         tasks = list(self._tasks.values())

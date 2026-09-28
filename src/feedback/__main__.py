@@ -23,6 +23,7 @@ def main() -> None:
             github_app_private_key=args.github_app_private_key_file,
             github_client_secret=args.github_client_secret_file,
             oauth_state_hmac_key=args.oauth_state_hmac_key_file,
+            github_webhook_secret=args.github_webhook_secret_file,
         ),
         verbose=args.verbose,
     )
@@ -62,6 +63,11 @@ def argument_parser() -> argparse.ArgumentParser:
         "--oauth-state-hmac-key-file",
         type=Path,
         default=Path("/run/secrets/oauth-state-hmac-key"),
+    )
+    parser.add_argument(
+        "--github-webhook-secret-file",
+        type=Path,
+        default=Path("/run/secrets/github-webhook-secret"),
     )
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=_port, default=8080)

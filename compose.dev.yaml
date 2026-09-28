@@ -14,6 +14,7 @@ services:
         --github-app-private-key-file=/workspace/config/secrets/github-app-private-key.pem
         --github-client-secret-file=/workspace/config/secrets/github-client-secret
         --oauth-state-hmac-key-file=/workspace/config/secrets/oauth-state-hmac-key
+        --github-webhook-secret-file=/workspace/config/secrets/github-webhook-secret
         --host=0.0.0.0 --port=8080
     init: true
     ports:

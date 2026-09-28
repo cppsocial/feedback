@@ -164,6 +164,13 @@ class SiteDatabase:
                 (fetched_at, category_key),
             )
 
+    def expire_category_pins(self, category_key: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE category_pin_snapshots SET fetched_at = 0 WHERE category_key = ?",
+                (category_key,),
+            )
+
     def put_discussion(
         self,
         *,

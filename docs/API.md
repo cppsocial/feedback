@@ -25,6 +25,7 @@ GitHub token after exchange and provides no general user-token proxy.
 | Principal | Permission used | Operation |
 | --- | --- | --- |
 | GitHub App installation | Discussions read | Find discussions, read threads, reactions, polls, labels, and author data |
+| GitHub App webhook | Discussions read; signed delivery | Receive discussion and discussion-comment events, expire caches, and log safe event metadata |
 | No GitHub credential | Public category page read | Refresh category pin flags when `category_pins` is enabled |
 | GitHub App installation | Discussions write | Create a discussion after a signed creation grant |
 | Signed-in GitHub user | Discussions read/write on the target repository | Read viewer state; vote, react, comment, reply, edit, delete, and mark answers where GitHub permits |
@@ -91,6 +92,19 @@ All JSON responses contain `v: 1`. Errors are
 | `POST` | `/v1/sites/{site}/oauth/exchange` | Exchange `code`, `state`, and `verifier`; return token plus an origin-bound creation grant |
 | `POST` | `/v1/sites/{site}/discussions/ensure` | Find or create a thread for a validated resource and grant |
 | `GET` | `/v1/sites/{site}/discussion?keys=a,b` | Fetch up to ten authoritative configured threads in one GitHub `nodes` query |
+| `POST` | `/v1/github/webhook` | Receive signed GitHub App discussion and discussion-comment events |
+
+The webhook route accepts only JSON bodies up to 256 KiB. It verifies
+`X-Hub-Signature-256` against the raw body, requires a delivery ID, and matches
+the repository and installation to configured sites. Duplicate IDs are ignored
+within a bounded in-memory window. It logs event, action, discussion number,
+category name, site, and delivery ID; it never logs content or actor identity.
+Signed `ping` deliveries are logged to check the App configuration.
+`discussion` and `discussion_comment` events expire the short thread cache.
+`pinned`, `unpinned`, and `category_changed` expire the matching category pin
+snapshot so the next card batch refreshes it. Reaction counts continue to use
+batched reads because GitHub has no documented reaction webhook event. A missed
+delivery is recovered by the existing time-based refresh.
 
 `OPTIONS` is registered explicitly for the reaction and POST routes. It checks
 the site origin and returns the allowed method and headers. `HEAD` is disabled
@@ -156,6 +170,9 @@ The server can contact GitHub only in these places:
    Identical simultaneous batches share in-flight work; completed, filtered
    results are held in a bounded 10-second memory cache. Deleted or minimized
    content can therefore remain visible for up to 10 seconds after moderation.
+6. Category pin refresh. Only requested categories are fetched from GitHub's
+   public pages, with persisted hourly snapshots, ETags, and failure cooldowns.
+   Webhooks expire snapshots but make no outbound request themselves.
 
 Request sizes, key syntax, JSON fields, body sizes, origins, and batch size are
 bounded. Security headers are applied globally. Logs omit tokens, OAuth codes,

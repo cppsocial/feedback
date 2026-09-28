@@ -11,6 +11,7 @@ services:
       - --github-app-private-key-file=/run/secrets/github-app-private-key
       - --github-client-secret-file=/run/secrets/github-client-secret
       - --oauth-state-hmac-key-file=/run/secrets/oauth-state-hmac-key
+      - --github-webhook-secret-file=/run/secrets/github-webhook-secret
       - --forwarded-allow-ips=172.17.0.1
       - --limit-concurrency=64
       - --keep-alive-seconds=5
@@ -35,6 +36,7 @@ services:
       - github-app-private-key
       - github-client-secret
       - oauth-state-hmac-key
+      - github-webhook-secret
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=10001,gid=10001
     healthcheck:
@@ -65,3 +67,5 @@ secrets:
     file: ./config/secrets/github-client-secret
   oauth-state-hmac-key:
     file: ./config/secrets/oauth-state-hmac-key
+  github-webhook-secret:
+    file: ./config/secrets/github-webhook-secret

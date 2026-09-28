@@ -48,6 +48,7 @@ in
           "${pkgs.coreutils}/bin/test -s config/secrets/github-app-private-key.pem"
           "${pkgs.coreutils}/bin/test -s config/secrets/github-client-secret"
           "${pkgs.coreutils}/bin/test -s config/secrets/oauth-state-hmac-key"
+          "${pkgs.coreutils}/bin/test -s config/secrets/github-webhook-secret"
         ];
         ExecStart = "${pkgs.docker-compose}/bin/docker-compose -f compose.deploy.yaml up --build --remove-orphans";
         ExecStop = "${pkgs.docker-compose}/bin/docker-compose -f compose.deploy.yaml down";
@@ -80,6 +81,16 @@ in
           brotli_types application/json application/problem+json text/plain;
         '';
         locations = {
+          "= /v1/github/webhook" = {
+            proxyPass = "http://127.0.0.1:18080";
+            extraConfig = ''
+              client_max_body_size 256k;
+              limit_req zone=feedback_general burst=30 nodelay;
+              proxy_connect_timeout 3s;
+              proxy_read_timeout 10s;
+              proxy_send_timeout 10s;
+            '';
+          };
           "~ ^/v1/sites/[a-z0-9-]+/(?:oauth/(?:authorize|exchange)|discussions/ensure)$" = {
             proxyPass = "http://127.0.0.1:18080";
             extraConfig = ''

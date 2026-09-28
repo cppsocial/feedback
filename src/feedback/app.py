@@ -26,6 +26,7 @@ from feedback.service.discussions import DiscussionService
 from feedback.service.oauth_state import CreationGrantSigner, StateSigner
 from feedback.service.reaction_cache import ReactionRefresher
 from feedback.service.runtime import FeedbackRuntime
+from feedback.service.webhooks import GitHubWebhookHandler
 
 logger = logging.getLogger("feedback.runtime")
 
@@ -35,6 +36,7 @@ class SecretFiles:
     github_app_private_key: Path
     github_client_secret: Path
     oauth_state_hmac_key: Path
+    github_webhook_secret: Path | None = None
 
 
 def create_app(
@@ -47,6 +49,7 @@ def create_app(
     grants: CreationGrantSigner | None = None,
     discussions: DiscussionService | None = None,
     pins: CategoryPinRefresher | None = None,
+    webhook_secret: bytes | None = None,
     verbose: bool = False,
 ) -> Starlette:
     if oauth is not None and grants is None:
@@ -61,7 +64,14 @@ def create_app(
         resolved_grants: CreationGrantSigner | None
         resolved_discussions: DiscussionService | None
         resolved_pins: CategoryPinRefresher | None
+        resolved_webhook_secret = webhook_secret
         if secret_files is not None:
+            if secret_files.github_webhook_secret is not None:
+                resolved_webhook_secret = _secret(
+                    secret_files.github_webhook_secret, "GitHub webhook secret"
+                ).strip()
+                if not resolved_webhook_secret:
+                    raise RuntimeError("GitHub webhook secret is empty")
             owned_http = httpx.AsyncClient(
                 timeout=httpx.Timeout(
                     loaded.service.http_request_timeout_seconds,
@@ -116,6 +126,14 @@ def create_app(
             discussions=resolved_discussions,
             pins=resolved_pins,
         )
+        if resolved_webhook_secret is not None:
+            services.webhooks = GitHubWebhookHandler(
+                secret=resolved_webhook_secret,
+                config=loaded,
+                databases=databases,
+                discussions=resolved_discussions,
+                pins=resolved_pins,
+            )
         application.state.services = services
         services.start_sweeps()
         logger.info(

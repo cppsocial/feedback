@@ -19,10 +19,24 @@ configuration, place these non-empty, non-group/world-writable files in
 - `github-app-private-key.pem`
 - `github-client-secret`
 - `oauth-state-hmac-key`
+- `github-webhook-secret`
 
 The secret files must be readable by UID 10001 in the container. Root-owned mode
 `0444` is suitable because Docker bind-mounts them read-only. The application
 configuration itself is committed as `config/sites.toml`.
+
+To receive GitHub App webhooks, generate a random secret in
+`config/secrets/github-webhook-secret` on the VPS. Put the same value in the
+GitHub App's **Webhook secret** setting. Keep this file out of Git and readable
+by container UID 10001. The App's webhook URL is
+`https://feedback-api.cpp.social/v1/github/webhook`; subscribe to **Discussion**
+and **Discussion comment** with SSL verification enabled. No repository webhook
+or GitHub Pages change is needed. Pinning a discussion to a category should
+produce a `feedback.webhook` log line; inspect its action and category to confirm
+GitHub's actual delivery behavior before relying on it operationally. A signed
+`ping` logs immediately when the App webhook is configured. GitHub's App
+**Advanced → Recent Deliveries** page shows delivery status; VPS logs are
+available with `journalctl -u feedback-service -f`.
 
 The GitHub App must be public (installable by any account), have Discussions
 read/write permission, and register the exact callback URL

@@ -46,6 +46,9 @@ class DiscussionService:
         self._content_tasks: dict[tuple[str, tuple[str, ...]], asyncio.Task[dict[str, Any]]] = {}
         self._content_cache: dict[tuple[str, str], tuple[float, Any]] = {}
 
+    def invalidate(self, site_id: str, node_id: str) -> None:
+        self._content_cache.pop((site_id, node_id), None)
+
     async def ensure(
         self, site: SiteConfig, database: SiteDatabase, resource: Resource
     ) -> Discussion:

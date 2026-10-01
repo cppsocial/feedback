@@ -12,36 +12,35 @@ import type { Reaction, ViewerSubjectState } from "../protocol/github.js";
 import { marked } from "marked";
 
 const parameters = new URLSearchParams(location.search);
+if (parameters.get("embed") === "1") document.body.classList.add("embedded");
 const site = parameters.get("site") ?? "feedback-cpp-social";
 const apiParameter = parameters.get("api");
 const apiOrigin = apiParameter === null
   ? "https://feedback-api.cpp.social"
   : trustedOrigin(apiParameter, "example API origin");
-const keys = [...new Set(
-  (parameters.get("keys") ?? parameters.get("key") ?? "feedback/example,feedback/documentation,feedback/navigation,feedback/design,poll/test,q-and-a/foo,q-and-a/test,feedback/not-created")
-    .split(",").map((value) => value.trim()).filter(Boolean),
-)];
-const githubMode = parameters.get("github") ?? "link";
+let keys = parseKeys(parameters.get("cards") ?? parameters.get("keys") ?? "feedback/example,feedback/documentation,feedback/navigation,feedback/design");
+let selectedKey = parameters.get("discussion") ?? parameters.get("key") ?? keys[0] ?? "feedback/example";
+let githubMode = parameters.get("github") ?? "link";
+let showCardReactions = parameters.get("cardReactions") !== "hidden";
 const visibility = {
   title: parameters.get("title") !== "hidden",
   root: parameters.get("firstPost") !== "hidden",
-  metadata: true,
-  poll: true,
-  discussionActions: true,
+  metadata: parameters.get("metadata") !== "hidden",
+  poll: parameters.get("poll") !== "hidden",
+  discussionActions: parameters.get("actions") !== "hidden",
 };
 const reactionTypes: readonly Reaction[] = [
   "THUMBS_UP", "THUMBS_DOWN", "LAUGH", "HOORAY", "CONFUSED", "HEART", "ROCKET", "EYES",
 ];
-let separateVotes = parameters.get("votes") === "separate";
+let separateVotes = parameters.get("votes") !== "reactions";
 const otherReactions = reactionTypes.filter((reaction) =>
   reaction !== "THUMBS_UP" && reaction !== "THUMBS_DOWN");
 const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
-let replyOrder: "oldest" | "newest" = "oldest";
-const authDialogEnabled = parameters.get("authDialog") !== "off";
-let selectedKey = keys[0] ?? "";
+let replyOrder: "oldest" | "newest" = parameters.get("replyOrder") === "newest" ? "newest" : "oldest";
+let authDialogEnabled = parameters.get("authDialog") !== "off";
 let cardViewerStates = new Map<string, ViewerSubjectState>();
 let counterSnapshot: ReadonlyMap<string, ReactionState> | undefined;
 let counterSnapshotAt = 0;
@@ -72,12 +71,17 @@ const returnEditor = (): void => {
   commentHome.insertBefore(commentForm, statusAnchor);
 };
 const orderControl = required("reply-order") as HTMLSelectElement;
+orderControl.value = replyOrder;
 orderControl.addEventListener("change", () => {
   replyOrder = orderControl.value === "newest" ? "newest" : "oldest";
+  updateConfigOutput();
   void render();
 });
-required("compose-on-top").addEventListener("change", () => {
+const composeOnTop = required("compose-on-top") as HTMLInputElement;
+composeOnTop.checked = parameters.get("composer") === "top";
+composeOnTop.addEventListener("change", () => {
   returnEditor();
+  updateConfigOutput();
   void render();
 });
 required("comment-form").addEventListener("submit", (event) => {
@@ -123,35 +127,48 @@ editorTools.addEventListener("click", (event) => {
 required("clear-reply").addEventListener("click", () => {
   returnEditor();
 });
-const commentKey = required("comment-key") as HTMLSelectElement;
-for (const key of keys) {
-  const option = document.createElement("option");
-  option.value = key;
-  option.textContent = key;
-  commentKey.append(option);
-}
-commentKey.value = selectedKey;
-commentKey.addEventListener("change", () => {
-  selectedKey = commentKey.value;
+const cardKeysInput = required("config-card-keys") as HTMLTextAreaElement;
+cardKeysInput.value = keys.join(", ");
+cardKeysInput.addEventListener("change", () => {
+  keys = parseKeys(cardKeysInput.value);
+  cardKeysInput.value = keys.join(", ");
+  counterSnapshot = undefined;
+  updateConfigOutput();
+  void render();
+});
+const discussionKeyInput = required("config-discussion-key") as HTMLInputElement;
+discussionKeyInput.value = selectedKey;
+discussionKeyInput.addEventListener("change", () => {
+  selectedKey = discussionKeyInput.value.trim();
+  discussionKeyInput.value = selectedKey;
   returnEditor();
+  updateConfigOutput();
   void render();
 });
-configureVisibilityButton("toggle-title", "title", "title");
-configureVisibilityButton("toggle-root", "root", "root post");
-configureVisibilityButton("toggle-metadata", "metadata", "metadata");
-configureVisibilityButton("toggle-poll", "poll", "poll");
-configureVisibilityButton("toggle-discussion-actions", "discussionActions", "post actions");
-const voteModeButton = required("toggle-vote-mode") as HTMLButtonElement;
-const refreshVoteMode = (): void => {
-  voteModeButton.textContent = separateVotes ? "Use traditional reactions" : "Separate votes";
-  voteModeButton.setAttribute("aria-pressed", String(separateVotes));
+const accessInput = required("config-discussion-access") as HTMLSelectElement;
+accessInput.value = ["link", "dialog", "hidden"].includes(githubMode) ? githubMode : "link";
+accessInput.addEventListener("change", () => { githubMode = accessInput.value; updateConfigOutput(); void render(); });
+const votesInput = required("config-votes") as HTMLSelectElement;
+votesInput.value = separateVotes ? "separate" : "reactions";
+votesInput.addEventListener("change", () => { separateVotes = votesInput.value === "separate"; updateConfigOutput(); void render(); });
+const bindSwitch = (id: string, value: boolean, change: (checked: boolean) => void): void => {
+  const input = required(id) as HTMLInputElement;
+  input.checked = value;
+  input.addEventListener("change", () => { change(input.checked); updateConfigOutput(); void render(); });
 };
-voteModeButton.addEventListener("click", () => {
-  separateVotes = !separateVotes;
-  refreshVoteMode();
-  void render();
+bindSwitch("config-card-reactions", showCardReactions, (value) => { showCardReactions = value; });
+bindSwitch("config-title", visibility.title, (value) => { visibility.title = value; });
+bindSwitch("config-root", visibility.root, (value) => { visibility.root = value; });
+bindSwitch("config-metadata", visibility.metadata, (value) => { visibility.metadata = value; });
+bindSwitch("config-poll", visibility.poll, (value) => { visibility.poll = value; });
+bindSwitch("config-actions", visibility.discussionActions, (value) => { visibility.discussionActions = value; });
+bindSwitch("config-auth-dialog", authDialogEnabled, (value) => { authDialogEnabled = value; });
+required("copy-config").addEventListener("click", () => {
+  void navigator.clipboard.writeText(required("config-output").textContent)
+    .then(() => { required("copy-config").textContent = "Copied"; })
+    .catch(() => { required("copy-config").textContent = "Select code to copy"; });
 });
-refreshVoteMode();
+updateConfigOutput();
 updateAuthenticationUi();
 renderRankingCards(client.cachedReactions(keys));
 void render();
@@ -163,7 +180,7 @@ async function submitComment(): Promise<void> {
   submit.disabled = true;
   try {
     const token = await requireAuthentication("Sign in to post your comment or reply.");
-    const key = replyTo?.key ?? commentKey.value;
+    const key = replyTo?.key ?? selectedKey;
     await client.addComment(key, textarea.value, token, replyTo?.id);
     textarea.value = "";
     returnEditor();
@@ -202,18 +219,19 @@ async function render(force = false): Promise<void> {
     }
     states = applyCounterOverrides(states);
     renderRankingCards(states);
-    const existingKeys = states.get(key)?.id ? [key] : [];
+    const discussionState = (await client.reactions([key])).get(key);
+    const hasDiscussion = Boolean(discussionState?.id);
     const root = required("thread");
     const rendered = document.createDocumentFragment();
-    let contents = new Map<string, { discussion: Record<string, unknown> }>();
+    const contents = new Map<string, { discussion: Record<string, unknown> }>();
     let contentError: unknown;
     try {
-      if (existingKeys.length > 0) {
+      if (hasDiscussion) {
         const snapshot = threadSnapshots.get(key);
         if (!force && snapshot && Date.now() - snapshot.at < 10_000) {
           contents.set(key, { discussion: structuredClone(snapshot.discussion) });
         } else {
-          contents = new Map(await client.discussionContents(existingKeys));
+          contents.set(key, await client.discussionContent(key));
           const discussion = contents.get(key)?.discussion;
           if (discussion) threadSnapshots.set(key, { at: Date.now(), discussion: structuredClone(discussion) });
         }
@@ -231,7 +249,7 @@ async function render(force = false): Promise<void> {
       const article = document.createElement("article");
       article.className = "discussion";
       rendered.append(article);
-      const state = states.get(key);
+      const state = discussionState;
       if (!state?.id) {
         renderMissingDiscussion(article, key, state);
         continue;
@@ -251,7 +269,7 @@ async function render(force = false): Promise<void> {
     }
     if (commentForm.parentElement !== commentHome) returnEditor();
     root.replaceChildren(rendered);
-    if ((required("compose-on-top") as HTMLInputElement).checked) {
+    if (composeOnTop.checked) {
       const heading = root.querySelector(".comments-heading");
       if (heading) heading.after(commentForm);
     }
@@ -289,7 +307,7 @@ function renderRankingCards(states: ReadonlyMap<string, ReactionState>): void {
     card.append(votes);
     const reactions = document.createElement("div");
     reactions.className = "reactions";
-    for (const [name, count] of Object.entries(state?.reactions ?? {})) {
+    for (const [name, count] of Object.entries(showCardReactions ? state?.reactions ?? {} : {})) {
       if (name === "THUMBS_UP" || name === "THUMBS_DOWN") continue;
       if (count === 0) continue;
       const selected = state?.id
@@ -383,13 +401,20 @@ function renderDiscussion(
     root.append(controls);
   }
   const url = string(content.url);
-  if (url && githubMode !== "hidden") {
-    const link = document.createElement("a");
-    link.href = url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = "View discussion on GitHub";
-    root.append(link);
+  if (url && safeUrl(url, false) && githubMode !== "hidden") {
+    const access = document.createElement(githubMode === "dialog" ? "button" : "a");
+    access.className = "discussion-access";
+    const icon = discussionIcon(githubMode === "dialog" ? "preview" : "external");
+    access.append(icon, document.createTextNode(githubMode === "dialog" ? "Quick view" : "Open on GitHub"));
+    if (access instanceof HTMLAnchorElement) {
+      access.href = url;
+      access.target = "_blank";
+      access.rel = "noopener noreferrer";
+    } else {
+      access.type = "button";
+      access.addEventListener("click", () => { showDiscussionDialog(content, url); });
+    }
+    root.append(access);
   }
   const commentsContainer = record(content.comments);
   const comments = commentsContainer?.nodes;
@@ -580,7 +605,6 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
     reply.textContent = "Reply";
     reply.addEventListener("click", () => {
       replyTo = { key, id: comment.id as string };
-      commentKey.value = key;
       required("clear-reply").hidden = false;
       footer.after(commentForm);
       showPreview(false);
@@ -906,22 +930,83 @@ function isAdmin(value: Record<string, unknown>): boolean {
   return ["OWNER", "MEMBER", "COLLABORATOR"].includes(string(value.authorAssociation));
 }
 
-function configureVisibilityButton(
-  id: string,
-  property: keyof typeof visibility,
-  label: string,
-): void {
-  const button = required(id) as HTMLButtonElement;
-  const refresh = (): void => {
-    button.textContent = `${visibility[property] ? "Hide" : "Show"} ${label}`;
-    button.setAttribute("aria-pressed", String(!visibility[property]));
+function parseKeys(input: string): string[] {
+  return [...new Set(input.split(",").map((value) => value.trim()).filter(Boolean))];
+}
+
+function updateConfigOutput(): void {
+  const config = {
+    site,
+    cards: keys,
+    discussion: selectedKey,
+    api: apiOrigin,
+    github: githubMode,
+    votes: separateVotes ? "separate" : "reactions",
+    replyOrder,
+    cardReactions: showCardReactions,
+    title: visibility.title,
+    firstPost: visibility.root,
+    metadata: visibility.metadata,
+    poll: visibility.poll,
+    actions: visibility.discussionActions,
+    composer: composeOnTop.checked ? "top" : "bottom",
+    authDialog: authDialogEnabled,
   };
-  button.addEventListener("click", () => {
-    visibility[property] = !visibility[property];
-    refresh();
-    void render();
-  });
-  refresh();
+  const code = `const feedbackConfig = ${JSON.stringify(config, null, 2)};\n` +
+    `const feedbackUrl = new URL(${JSON.stringify(new URL("/example/", location.origin).href)});\n` +
+    `feedbackUrl.search = new URLSearchParams({\n` +
+    `  site: feedbackConfig.site, cards: feedbackConfig.cards.join(","),\n` +
+    `  discussion: feedbackConfig.discussion, api: feedbackConfig.api,\n` +
+    `  github: feedbackConfig.github, votes: feedbackConfig.votes,\n` +
+    `  replyOrder: feedbackConfig.replyOrder, cardReactions: feedbackConfig.cardReactions ? "visible" : "hidden",\n` +
+    `  title: feedbackConfig.title ? "visible" : "hidden", firstPost: feedbackConfig.firstPost ? "visible" : "hidden",\n` +
+    `  metadata: feedbackConfig.metadata ? "visible" : "hidden", poll: feedbackConfig.poll ? "visible" : "hidden",\n` +
+    `  actions: feedbackConfig.actions ? "visible" : "hidden", composer: feedbackConfig.composer,\n` +
+    `  authDialog: feedbackConfig.authDialog ? "on" : "off", embed: "1"\n` +
+    `}).toString();\n` +
+    `const feedbackFrame = document.createElement("iframe");\n` +
+    `feedbackFrame.src = feedbackUrl.href;\n` +
+    `feedbackFrame.title = "Feedback discussion";\n` +
+    `feedbackFrame.style.cssText = "width:100%;min-height:900px;border:0";\n` +
+    `document.currentScript.after(feedbackFrame);`;
+  required("config-output").textContent = code;
+}
+
+function showDiscussionDialog(content: Record<string, unknown>, url: string): void {
+  const dialog = required("discussion-dialog") as HTMLDialogElement;
+  required("discussion-dialog-title").textContent = string(content.title) || "Discussion";
+  const body = required("discussion-dialog-content");
+  body.replaceChildren();
+  renderMarkdown(body, string(content.bodyHTML), string(content.body));
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.className = "discussion-access";
+  link.textContent = "Open full discussion on GitHub ↗";
+  body.append(link);
+  dialog.showModal();
+}
+
+function discussionIcon(kind: "preview" | "external"): SVGSVGElement {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("discussion-access-icon");
+  const path = document.createElementNS(namespace, "path");
+  path.setAttribute("d", kind === "preview"
+    ? "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"
+    : "M13 4h7v7m0-7-9 9M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5");
+  svg.append(path);
+  return svg;
 }
 
 function renderMarkdown(parent: Element, html: string, fallback: string): void {

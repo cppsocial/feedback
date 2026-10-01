@@ -91,8 +91,11 @@ All JSON responses contain `v: 1`. Errors are
 | `POST` | `/v1/sites/{site}/oauth/authorize` | Start PKCE OAuth with `challenge` and `nonce` |
 | `POST` | `/v1/sites/{site}/oauth/exchange` | Exchange `code`, `state`, and `verifier`; return token plus an origin-bound creation grant |
 | `POST` | `/v1/sites/{site}/discussions/ensure` | Find or create a thread for a validated resource and grant |
-| `GET` | `/v1/sites/{site}/discussion?keys=a,b` | Fetch up to ten authoritative configured threads in one GitHub `nodes` query |
+| `GET` | `/v1/sites/{site}/discussion?key=a` | Fetch one authoritative configured thread; repeated or multi-key parameters are rejected |
 | `POST` | `/v1/github/webhook` | Receive signed GitHub App discussion and discussion-comment events |
+
+The discussion read returns `{"v":1,"site":"...","key":"a","discussion":{...}}`.
+The `key` parameter must occur exactly once; the former `keys` batch form is invalid.
 
 The webhook route accepts only JSON bodies up to 256 KiB. It verifies
 `X-Hub-Signature-256` against the raw body, requires a delivery ID, and matches

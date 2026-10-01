@@ -132,7 +132,7 @@ async def test_concurrent_content_reads_share_a_cached_github_request(
 
 
 @pytest.mark.asyncio
-async def test_content_cache_reuses_nodes_across_batch_shapes(
+async def test_content_cache_reuses_each_discussion_independently(
     config: Config, tmp_path: Path
 ) -> None:
     database = SiteDatabase(tmp_path / "site.sqlite3")
@@ -150,11 +150,12 @@ async def test_content_cache_reuses_nodes_across_batch_shapes(
     service = DiscussionService(github, clock=lambda: 1_000)
     site = config.sites["cpp-social"]
 
-    await service.contents(site, database, ["feedback/first", "feedback/second"])
     await service.content(site, database, "feedback/first")
-    await service.contents(site, database, ["feedback/second", "feedback/first"])
+    await service.content(site, database, "feedback/second")
+    await service.content(site, database, "feedback/first")
+    await service.content(site, database, "feedback/second")
 
-    assert github.calls == 1
+    assert github.calls == 2
 
 
 @pytest.mark.asyncio
@@ -215,7 +216,7 @@ async def test_hidden_comments_and_replies_are_excluded(config: Config, tmp_path
     result = await DiscussionService(DeletedContent()).content(
         config.sites["cpp-social"], database, "feedback/example"
     )
-    comments = result["nodes"][0]["comments"]
+    comments = result["comments"]
     assert comments == {
         "totalCount": 1,
         "nodes": [

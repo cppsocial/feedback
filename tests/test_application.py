@@ -116,6 +116,43 @@ def test_reactions_rejects_invalid_and_empty_keys(config: Config) -> None:
     assert empty.status_code == 400
 
 
+def test_discussion_endpoint_accepts_only_one_key(config: Config) -> None:
+    class Discussions:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def content(self, site: object, database: object, key: str) -> dict[str, str]:
+            self.calls.append(key)
+            return {"id": "D_example"}
+
+    discussions = Discussions()
+    configured = replace(config, sites={
+        "cpp-social": replace(config.sites["cpp-social"], intents=frozenset({"discussion"}))
+    })
+    with TestClient(create_app(configured, discussions=discussions)) as client:  # type: ignore[arg-type]
+        valid = client.get(
+            "/v1/sites/cpp-social/discussion?key=feedback/example",
+            headers={"Origin": "https://cpp.social"},
+        )
+        batch = client.get(
+            "/v1/sites/cpp-social/discussion?keys=feedback/example,feedback/other",
+            headers={"Origin": "https://cpp.social"},
+        )
+        repeated = client.get(
+            "/v1/sites/cpp-social/discussion?key=feedback/example&key=feedback/other",
+            headers={"Origin": "https://cpp.social"},
+        )
+        comma = client.get(
+            "/v1/sites/cpp-social/discussion?key=feedback/example,feedback/other",
+            headers={"Origin": "https://cpp.social"},
+        )
+
+    assert valid.status_code == 200
+    assert valid.json()["discussion"] == {"id": "D_example"}
+    assert [batch.status_code, repeated.status_code, comma.status_code] == [400, 400, 400]
+    assert discussions.calls == ["feedback/example"]
+
+
 def test_only_api_routes_are_served(config: Config) -> None:
     with TestClient(create_app(config), follow_redirects=False) as client:
         root = client.get("/")

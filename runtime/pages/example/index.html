@@ -4,32 +4,41 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width">
     <meta name="referrer" content="no-referrer">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://avatars.githubusercontent.com https://user-images.githubusercontent.com https://github.com data:; connect-src https://feedback-api.cpp.social https://api.github.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https://avatars.githubusercontent.com https://user-images.githubusercontent.com https://github.com data:; connect-src https://feedback-api.cpp.social https://api.github.com http://localhost:* http://127.0.0.1:*; base-uri 'none'; form-action 'none'">
     <link rel="stylesheet" href="/example/style.css">
     <title>Feedback integration example</title>
   </head>
   <body>
     <main>
-      <h1>Feedback integration example</h1>
-      <p>This page exercises batched reaction-backed votes, multiple discussion threads, reactions, labels, polls, comments, replies, answers, and GitHub links.</p>
-      <p>API: <code id="api-origin"></code></p>
+      <header class="page-intro"><span class="eyebrow">Feedback playground</span><h1>Make the discussion yours</h1><p>Preview a single discussion alongside a batch of lightweight reaction cards. Configure the view, then copy the embed code.</p></header>
+      <section id="configuration" class="configuration" aria-labelledby="configuration-title">
+        <div class="configuration-heading"><div><span class="eyebrow">Setup</span><h2 id="configuration-title">Configuration</h2></div><code id="api-origin"></code></div>
+        <div class="configuration-grid">
+          <label class="config-wide">Card keys <span>Comma-separated resource keys</span><textarea id="config-card-keys" rows="2"></textarea></label>
+          <label>Discussion key <span>One full discussion</span><input id="config-discussion-key" type="text"></label>
+          <label>Discussion access <select id="config-discussion-access"><option value="link">Open GitHub link</option><option value="dialog">Preview in dialog</option><option value="hidden">Hide control</option></select></label>
+          <label>Vote display <select id="config-votes"><option value="separate">Separate up/down</option><option value="reactions">All as reactions</option></select></label>
+          <label>Reply order <select id="reply-order"><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label>
+        </div>
+        <fieldset class="config-switches"><legend>Visible elements</legend>
+          <label><input id="config-card-reactions" type="checkbox"> Other reactions on cards</label>
+          <label><input id="config-title" type="checkbox"> Discussion title</label>
+          <label><input id="config-root" type="checkbox"> First post</label>
+          <label><input id="config-metadata" type="checkbox"> Metadata</label>
+          <label><input id="config-poll" type="checkbox"> Poll</label>
+          <label><input id="config-actions" type="checkbox"> Post actions</label>
+          <label><input id="compose-on-top" type="checkbox"> Reply editor above comments</label>
+          <label><input id="config-auth-dialog" type="checkbox"> Sign-in dialog</label>
+        </fieldset>
+        <div class="config-code-heading"><strong>Embed JavaScript <small>Paste inside a script tag on your page</small></strong><button id="copy-config" type="button">Copy code</button></div>
+        <pre class="config-code"><code id="config-output"></code></pre>
+      </section>
       <div id="authentication-status" class="authentication-status"></div>
-      <h2>Voting and reaction cards</h2>
-      <p>These cards use one anonymous batched counter request. The final card intentionally has no discussion.</p>
+      <div class="section-heading"><div><span class="eyebrow">Compact view</span><h2>Reaction cards</h2></div><p>Counts load in one batch.</p></div>
       <section id="cards" class="cards"></section>
-      <h2>Full discussions</h2>
-      <div class="thread-toolbar">
-        <label>Discussion <select id="comment-key"></select></label>
-        <button id="toggle-title" type="button" aria-pressed="false">Hide title</button>
-        <button id="toggle-root" type="button" aria-pressed="false">Hide root post</button>
-        <button id="toggle-metadata" type="button" aria-pressed="false">Hide metadata</button>
-        <button id="toggle-poll" type="button" aria-pressed="false">Hide poll</button>
-        <button id="toggle-discussion-actions" type="button" aria-pressed="false">Hide post actions</button>
-        <button id="toggle-vote-mode" type="button" aria-pressed="false">Separate votes</button>
-        <label>Replies <select id="reply-order"><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label>
-        <label><input id="compose-on-top" type="checkbox"> Write a top-level reply above comments</label>
-      </div>
+      <div class="section-heading"><div><span class="eyebrow">Full view</span><h2>Discussion</h2></div></div>
       <section id="thread" class="thread"></section>
+      <dialog id="discussion-dialog" class="discussion-dialog" aria-labelledby="discussion-dialog-title"><form method="dialog"><button class="dialog-close" aria-label="Close" title="Close">×</button></form><h2 id="discussion-dialog-title"></h2><div id="discussion-dialog-content"></div></dialog>
       <form id="comment-form" class="comment-form">
         <div class="comment-box">
           <div class="comment-box-header">

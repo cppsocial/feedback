@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from feedback.api.context import site_request
-from feedback.api.http import ApiError, ensure_discussion_request, preflight, resource_keys
+from feedback.api.http import ApiError, ensure_discussion_request, preflight, resource_key
 from feedback.protocol.github.client import GitHubError
 from feedback.service.discussions import DiscussionError
 from feedback.service.oauth_state import GrantError
@@ -68,16 +68,16 @@ async def content(request: Request) -> Response:
     context.require("discussion")
     if context.runtime.discussions is None:
         raise ApiError("service_unavailable", "Discussion content is unavailable.", 503)
-    keys = resource_keys(request.query_params, min(context.site.max_batch_size, 10))
+    key = resource_key(request.query_params)
     try:
-        items = await context.runtime.discussions.contents(context.site, context.database, keys)
+        discussion = await context.runtime.discussions.content(context.site, context.database, key)
     except DiscussionError as exc:
         raise ApiError("discussion_not_found", str(exc), 404) from exc
     except GitHubError as exc:
         raise ApiError("github_unavailable", "GitHub is temporarily unavailable.", 502) from exc
     return context.response(
         JSONResponse(
-            {"v": 1, "site": context.site.id, "items": items},
+            {"v": 1, "site": context.site.id, "key": key, "discussion": discussion},
             headers={"Cache-Control": "no-store"},
         )
     )

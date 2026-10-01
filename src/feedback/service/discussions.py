@@ -43,7 +43,7 @@ class DiscussionService:
         self._github = github
         self._clock = clock
         self._locks: dict[str, asyncio.Lock] = {}
-        self._content_tasks: dict[tuple[str, tuple[str, ...]], asyncio.Task[dict[str, Any]]] = {}
+        self._content_tasks: dict[tuple[str, str], asyncio.Task[dict[str, Any]]] = {}
         self._content_cache: dict[tuple[str, str], tuple[float, Any]] = {}
 
     def invalidate(self, site_id: str, node_id: str) -> bool:
@@ -104,52 +104,35 @@ class DiscussionService:
     async def content(
         self, site: SiteConfig, database: SiteDatabase, resource_id: str
     ) -> dict[str, Any]:
-        result = await self.contents(site, database, [resource_id])
-        return {"nodes": [result[resource_id]]}
-
-    async def contents(
-        self, site: SiteConfig, database: SiteDatabase, resource_ids: list[str]
-    ) -> dict[str, Any]:
-        discussions = [database.discussion(resource_id) for resource_id in resource_ids]
-        if any(discussion is None for discussion in discussions):
+        discussion = database.discussion(resource_id)
+        if discussion is None:
             raise DiscussionError("discussion does not exist")
-        resolved = [discussion for discussion in discussions if discussion is not None]
-        ids = tuple(discussion.node_id for discussion in resolved)
-        missing = tuple(
-            node_id
-            for node_id in ids
-            if (cached := self._content_cache.get((site.id, node_id))) is None
-            or self._clock() - cached[0] >= 10
-        )
-        if missing:
-            key = (site.id, missing)
+        node_id = discussion.node_id
+        cache_key = (site.id, node_id)
+        cached = self._content_cache.get(cache_key)
+        if cached is None or self._clock() - cached[0] >= 10:
+            key = cache_key
             task = self._content_tasks.get(key)
             if task is None or task.done():
                 gateway = cast(DiscussionContentGateway, self._github)
-                task = asyncio.create_task(gateway.content(site, list(missing)))
+                task = asyncio.create_task(gateway.content(site, [node_id]))
                 self._content_tasks[key] = task
             try:
                 payload = _without_hidden_content(await asyncio.shield(task))
                 nodes = payload.get("nodes")
-                if not isinstance(nodes, list) or len(nodes) != len(missing):
+                if not isinstance(nodes, list) or len(nodes) != 1 or not isinstance(nodes[0], dict):
                     raise DiscussionError("discussion response is incomplete")
-                if len(self._content_cache) + len(missing) > 128:
-                    requested = {(site.id, node_id) for node_id in ids}
+                if len(self._content_cache) >= 128 and cache_key not in self._content_cache:
                     for cached_key in list(self._content_cache):
-                        if cached_key not in requested:
+                        if cached_key != cache_key:
                             self._content_cache.pop(cached_key)
-                        if len(self._content_cache) + len(missing) <= 128:
+                        if len(self._content_cache) < 128:
                             break
-                fetched_at = self._clock()
-                for node_id, node in zip(missing, nodes, strict=True):
-                    self._content_cache[(site.id, node_id)] = (fetched_at, node)
+                self._content_cache[cache_key] = (self._clock(), nodes[0])
             finally:
                 if self._content_tasks.get(key) is task and task.done():
                     self._content_tasks.pop(key, None)
-        return {
-            resource_id: copy.deepcopy(self._content_cache[(site.id, node_id)][1])
-            for resource_id, node_id in zip(resource_ids, ids, strict=True)
-        }
+        return copy.deepcopy(self._content_cache[cache_key][1])
 
 
 def _without_hidden_content(data: dict[str, Any]) -> dict[str, Any]:

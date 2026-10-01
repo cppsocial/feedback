@@ -109,21 +109,20 @@ const resource = resourceFromDocument({
 });
 ```
 
-The bundled example exercises multiple threads, batched reaction-backed votes,
-reactions, labels, polls, comments, replies, accepted
-answers, author associations, and GitHub links. Supply
-comma-separated resource keys with `keys`:
+The bundled example shows one full discussion and a batch of lightweight
+reaction cards. Open `/example/` to configure the view and copy the generated
+JavaScript embed snippet. `cards` accepts comma-separated keys; `discussion`
+accepts one key. The page only loads full content for that one discussion.
 
-`https://feedback.cpp.social/example/?site=feedback-cpp-social&keys=feedback%2Fexample%2Cfeedback%2Fexample-two&github=link`
+For a direct link, for example:
 
-Add `firstPost=hidden` when the host page already represents the discussion's
-opening post. This frontend-only option keeps post reactions and votes,
-poll controls, and comments visible. `title=hidden` also starts with the
-discussion title hidden. The example toolbar can toggle the title, root post,
-metadata, poll, and post actions without another request configuration.
-Add `votes=separate` to display thumbs-up/down as a distinct single-choice vote
-control instead of ordinary reactions in full discussion panels. The example
-toolbar can toggle this mode. Voting cards always use the separate vote control.
+`https://feedback.cpp.social/example/?site=feedback-cpp-social&cards=feedback%2Fexample%2Cfeedback%2Fexample-two&discussion=feedback%2Fexample&github=dialog`
+
+The configurator covers card reactions, discussion access, title, first post,
+metadata, poll, post actions, vote display, reply order, editor placement, and
+the sign-in dialog. Its generated snippet creates an embedded frame with the
+same choices. `github=link` opens GitHub; `github=dialog` opens a quick view;
+`github=hidden` removes the access control.
 
 ## API and intent configuration
 

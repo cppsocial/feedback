@@ -40,6 +40,16 @@ def resource_keys(query: QueryParams, maximum: int) -> list[str]:
     return keys
 
 
+def resource_key(query: QueryParams) -> str:
+    parameters = list(query.multi_items())
+    if len(parameters) != 1 or parameters[0][0] != "key":
+        raise ApiError("invalid_key", "Exactly one key query parameter is required.", 400)
+    try:
+        return validate_resource_id(parameters[0][1])
+    except ResourceError as exc:
+        raise ApiError("invalid_key", "Resource key is invalid.", 400) from exc
+
+
 async def json_strings(
     request: Request,
     fields: frozenset[str],

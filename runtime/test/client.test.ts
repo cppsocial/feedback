@@ -23,6 +23,20 @@ void test("reaction counters are requested in a sorted batch", async () => {
   assert.equal(states.get("a")?.down, 0);
 });
 
+void test("discussion content requests exactly one key", async () => {
+  let requested = "";
+  const fetch = (input: URL | RequestInfo): Promise<Response> => {
+    requested = input instanceof Request ? input.url : input.toString();
+    return Promise.resolve(Response.json({ v: 1, key: "feedback/example", discussion: { id: "D_example" } }));
+  };
+  const client = new FeedbackClient({ apiOrigin: "https://feedback-api.cpp.social", site: "cpp-social", fetch });
+
+  const content = await client.discussionContent("feedback/example");
+
+  assert.equal(requested, "https://feedback-api.cpp.social/v1/sites/cpp-social/discussion?key=feedback%2Fexample");
+  assert.equal(content.discussion.id, "D_example");
+});
+
 void test("OAuth transport sends JSON only to the configured site", async () => {
   const requests: Request[] = [];
   const fetch = (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {

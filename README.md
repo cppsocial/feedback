@@ -21,9 +21,10 @@ configuration, place these non-empty, non-group/world-writable files in
 - `oauth-state-hmac-key`
 - `github-webhook-secret`
 
-The secret files must be readable by UID 10001 in the container. Root-owned mode
-`0444` is suitable because Docker bind-mounts them read-only. The application
-configuration itself is committed as `config/sites.toml`.
+The secret files must be readable by UID 10001 in the container. For a
+file-backed Compose secret, use owner UID 10001 and mode `0400` on the VPS;
+Compose bind-mounts the source file with its host ownership and permissions.
+The application configuration itself is committed as `config/sites.toml`.
 
 To receive GitHub App webhooks, generate a random secret in
 `config/secrets/github-webhook-secret` on the VPS. Put the same value in the
@@ -157,6 +158,8 @@ category page once per requested category per `pin_cache_seconds` (default one
 hour), using ETags when available. Concurrent requests share a refresh. Failed
 refreshes retain the last good snapshot and wait five minutes before retrying.
 This uses the category's pinned list, so repository-wide pins do not affect it.
+The demo uses a 15-minute interval because category pin changes have not produced
+webhook deliveries in testing.
 
 `cache_fresh_seconds` is the age at which a requested tracked counter needs an
 authoritative GitHub refresh. The default is 60 seconds. A batched request
@@ -177,8 +180,11 @@ batches. Targeted requests and successful votes continue independently.
 
 Successful browser mutations update the displayed counters immediately, without
 submitting a second vote or trusting an unverified client count on the server.
-The next successful
-targeted or maintenance refresh replaces counters with GitHub's absolute counts.
+The next successful targeted or maintenance refresh replaces counters with
+GitHub's absolute counts. A complete discussion or comment webhook payload can
+also refresh the tracked discussion's stored reaction totals without a GraphQL
+request. Direct reaction changes do not emit webhooks and still use the batched
+refresh path.
 Counter responses use `no-cache`, so
 browsers revalidate with this service; that does not imply a GitHub request while
 the relevant snapshot remains fresh.

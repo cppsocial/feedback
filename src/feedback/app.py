@@ -133,6 +133,7 @@ def create_app(
                 databases=databases,
                 discussions=resolved_discussions,
                 pins=resolved_pins,
+                clock=clock,
             )
         application.state.services = services
         services.start_sweeps()

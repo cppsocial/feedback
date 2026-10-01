@@ -98,13 +98,23 @@ The webhook route accepts only JSON bodies up to 256 KiB. It verifies
 `X-Hub-Signature-256` against the raw body, requires a delivery ID, and matches
 the repository and installation to configured sites. Duplicate IDs are ignored
 within a bounded in-memory window. It logs event, action, discussion number,
-category name, site, and delivery ID; it never logs content or actor identity.
+category name, site, delivery ID, and the number of cache entries actually
+invalidated; it never logs content or actor identity.
 Signed `ping` deliveries are logged to check the App configuration.
 `discussion` and `discussion_comment` events expire the short thread cache.
 `pinned`, `unpinned`, and `category_changed` expire the matching category pin
-snapshot so the next card batch refreshes it. Reaction counts continue to use
-batched reads because GitHub has no documented reaction webhook event. A missed
-delivery is recovered by the existing time-based refresh.
+snapshot when GitHub emits those actions. A category pin may emit no webhook;
+the cached category page remains the source of truth and refreshes on its normal
+schedule. Discussion and comment deliveries with a complete reaction snapshot
+update stored counters for already tracked discussions. Direct reaction changes
+still need batched reads because GitHub has no documented reaction webhook event.
+Older deliveries and API requests started before a newer snapshot cannot
+overwrite it. A missed delivery is recovered by the existing time-based refresh.
+Comment events do not add comment bodies to SQLite: thread content is read from
+GitHub and held only in the short memory cache. The log reports how many
+`counter_snapshots_updated` were stored from the complete payload. A zero
+`content_caches_removed` means no matching thread snapshot was cached at
+delivery time; no GitHub read is triggered until a client asks for that thread.
 
 `OPTIONS` is registered explicitly for the reaction and POST routes. It checks
 the site origin and returns the allowed method and headers. `HEAD` is disabled

@@ -88,6 +88,7 @@ main {
 
 .thread-toolbar label { margin-right: auto; }
 .thread-toolbar select { margin-left: 0.35rem; max-width: 20rem; }
+.thread-toolbar input { vertical-align: middle; }
 
 .cards {
   display: grid;
@@ -314,6 +315,9 @@ textarea {
   justify-content: space-between;
   padding: 0.6rem 0.9rem;
 }
+.editor-tabs { display: flex; gap: 0.35rem; }
+.editor-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-weight: 600; padding: 0.2rem 0.6rem; }
+.editor-tabs button[aria-pressed="true"] { border-bottom-color: #0969da; color: #0969da; }
 
 .editor-tools {
   background: #f6f8fa;
@@ -322,6 +326,8 @@ textarea {
   gap: 0.25rem;
   padding: 0.35rem 0.75rem;
 }
+.editor-tools button { background: white; border-color: transparent; font-weight: 600; padding: 0.35rem 0.6rem; }
+.editor-tools button:hover { border-color: #d0d7de; background: #eaeef2; }
 
 .editor-tools[hidden] { display: none; }
 
@@ -332,6 +338,12 @@ textarea {
   margin: 0;
   width: 100%;
 }
+.comment-box textarea:focus { outline: 2px solid #0969da; outline-offset: -2px; }
+.comment-box textarea[hidden], .comment-preview[hidden] { display: none; }
+.comment-preview { box-sizing: border-box; min-height: 11rem; padding: 0.75rem; }
+.comment-form { background: #fff; }
+.comment .comment-form { border-top: 1px solid #d8dee4; padding-top: 1rem; }
+.discussion > .comment-form { border-top: 1px solid #d8dee4; padding: 1rem 0; }
 
 .comment-box small {
   color: #656d76;
@@ -350,6 +362,19 @@ textarea {
 .markdown-body img { max-width: 100%; }
 .markdown-body table { border-collapse: collapse; display: block; overflow: auto; }
 .markdown-body td, .markdown-body th { border: 1px solid #d0d7de; padding: 0.4rem 0.8rem; }
+.markdown-body blockquote { border-left: 4px solid #d0d7de; color: #656d76; margin: 1rem 0; padding: 0.2rem 1rem; }
+.markdown-body a { color: #0969da; }
+.markdown-body p { margin: 0 0 1rem; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.authentication-dialog { border: 1px solid #d0d7de; border-radius: 0.75rem; box-shadow: 0 24px 64px #1f232844; box-sizing: border-box; max-width: min(28rem, calc(100vw - 2rem)); padding: 2rem; width: 100%; }
+.authentication-dialog::backdrop { background: #1f2328a8; }
+.authentication-dialog h2 { margin-top: 0; }
+.authentication-dialog .dialog-close { background: transparent; border: 0; font-size: 1.5rem; padding: 0.1rem 0.5rem; position: absolute; right: 0.75rem; top: 0.75rem; }
+.authentication-dialog #authentication-continue { background: #1f883d; color: white; font-weight: 600; width: 100%; }
+.auth-explanation { color: #656d76; }
+.info-icon { color: #0969da; cursor: help; display: inline-block; position: relative; }
+.info-tooltip { background: #24292f; border-radius: 0.4rem; bottom: 1.6rem; color: white; display: none; font-size: 0.8rem; left: 0; padding: 0.6rem; position: absolute; width: 14rem; z-index: 2; }
+.info-icon:hover .info-tooltip, .info-icon:focus .info-tooltip { display: block; }
 
 .tag {
   background: #eef2f6;

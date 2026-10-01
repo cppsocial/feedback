@@ -6,6 +6,8 @@ import json
 import logging
 import re
 from collections import deque
+from collections.abc import Callable
+from datetime import datetime
 
 from feedback.config import Config, SiteConfig
 from feedback.database.sqlite import SiteDatabase
@@ -16,6 +18,16 @@ logger = logging.getLogger("feedback.webhook")
 _DELIVERY = re.compile(r"[a-fA-F0-9-]{36}\Z")
 _SIGNATURE = re.compile(r"sha256=[a-fA-F0-9]{64}\Z")
 _ACTION = re.compile(r"[a-z_]{1,48}\Z")
+_REACTION_NAMES = {
+    "+1": "THUMBS_UP",
+    "-1": "THUMBS_DOWN",
+    "laugh": "LAUGH",
+    "hooray": "HOORAY",
+    "confused": "CONFUSED",
+    "heart": "HEART",
+    "rocket": "ROCKET",
+    "eyes": "EYES",
+}
 
 
 class GitHubWebhookHandler:
@@ -27,12 +39,14 @@ class GitHubWebhookHandler:
         databases: dict[str, SiteDatabase],
         discussions: DiscussionService | None,
         pins: CategoryPinRefresher | None,
+        clock: Callable[[], float],
     ) -> None:
         self.secret = secret
         self.config = config
         self.databases = databases
         self.discussions = discussions
         self.pins = pins
+        self.clock = clock
         self._seen: set[str] = set()
         self._order: deque[str] = deque()
 
@@ -103,9 +117,54 @@ class GitHubWebhookHandler:
             category_name = None
         number = discussion.get("number")
         node_id = discussion.get("node_id")
+        content_caches_removed = 0
+        pin_snapshots_expired = 0
+        counter_snapshots_updated = 0
+        if (
+            event in {"discussion", "discussion_comment"}
+            and isinstance(node_id, str)
+            and self.discussions is not None
+        ):
+            for site in sites:
+                content_caches_removed += self.discussions.invalidate(site.id, node_id)
+        if event == "discussion" and action in {"pinned", "unpinned", "category_changed"}:
+            for site in sites:
+                if self.pins is not None and "category_pins" in site.intents:
+                    pin_snapshots_expired += self.pins.invalidate(
+                        site,
+                        self.databases[site.id],
+                        None if action == "category_changed" else category_name,
+                    )
+        if event in {"discussion", "discussion_comment"} and action != "deleted":
+            snapshot = _reaction_snapshot(discussion)
+            if (
+                snapshot is not None
+                and isinstance(node_id, str)
+                and isinstance(number, int)
+                and not isinstance(number, bool)
+            ):
+                counts, locked, updated_at = snapshot
+                received_at = int(self.clock())
+                if updated_at <= received_at + 300:
+                    for site in sites:
+                        if "votes" in site.intents:
+                            counter_snapshots_updated += self.databases[
+                                site.id
+                            ].update_webhook_reactions(
+                                node_id=node_id,
+                                number=number,
+                                thumbsup=counts["THUMBS_UP"],
+                                thumbsdown=counts["THUMBS_DOWN"],
+                                reactions={name: counts[name] for name in site.reaction_counters},
+                                locked=locked,
+                                updated_at=updated_at,
+                                fetched_at=max(received_at, updated_at),
+                            )
         logger.info(
-            "GitHub webhook received: event=%s action=%s repository=%s sites=%s "
-            "discussion_number=%s category=%r delivery=%s",
+            "GitHub webhook processed: event=%s action=%s repository=%s sites=%s "
+            "discussion_number=%s category=%r delivery=%s "
+            "content_caches_removed=%s pin_snapshots_expired=%s "
+            "counter_snapshots_updated=%s",
             event if event in {"discussion", "discussion_comment"} else "other",
             action if isinstance(action, str) and _ACTION.fullmatch(action) else "unknown",
             repo,
@@ -113,19 +172,39 @@ class GitHubWebhookHandler:
             number if isinstance(number, int) and not isinstance(number, bool) else None,
             category_name if category_name is not None and len(category_name) < 80 else None,
             delivery,
+            content_caches_removed,
+            pin_snapshots_expired,
+            counter_snapshots_updated,
         )
-        if (
-            event in {"discussion", "discussion_comment"}
-            and isinstance(node_id, str)
-            and self.discussions is not None
-        ):
-            for site in sites:
-                self.discussions.invalidate(site.id, node_id)
-        if event == "discussion" and action in {"pinned", "unpinned", "category_changed"}:
-            for site in sites:
-                if self.pins is not None and "category_pins" in site.intents:
-                    self.pins.invalidate(
-                        site,
-                        self.databases[site.id],
-                        None if action == "category_changed" else category_name,
-                    )
+
+
+def _reaction_snapshot(
+    discussion: dict[str, object],
+) -> tuple[dict[str, int], bool, int] | None:
+    raw = discussion.get("reactions")
+    locked = discussion.get("locked")
+    updated = discussion.get("updated_at")
+    if not isinstance(raw, dict) or not isinstance(locked, bool) or not isinstance(updated, str):
+        return None
+    counts: dict[str, int] = {}
+    for key, name in _REACTION_NAMES.items():
+        value = raw.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < 2**63:
+            return None
+        counts[name] = value
+    total = raw.get("total_count")
+    if (
+        not isinstance(total, int)
+        or isinstance(total, bool)
+        or not 0 <= total < 2**63
+        or total != sum(counts.values())
+    ):
+        return None
+    try:
+        when = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+        if when.utcoffset() is None:
+            return None
+        timestamp = int(when.timestamp())
+    except ValueError, OverflowError:
+        return None
+    return counts, locked, timestamp

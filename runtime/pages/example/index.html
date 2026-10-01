@@ -26,20 +26,16 @@
         <button id="toggle-poll" type="button" aria-pressed="false">Hide poll</button>
         <button id="toggle-discussion-actions" type="button" aria-pressed="false">Hide post actions</button>
         <button id="toggle-vote-mode" type="button" aria-pressed="false">Separate votes</button>
+        <label>Replies <select id="reply-order"><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label>
+        <label><input id="compose-on-top" type="checkbox"> Write a top-level reply above comments</label>
       </div>
       <section id="thread" class="thread"></section>
       <form id="comment-form" class="comment-form">
         <div class="comment-box">
           <div class="comment-box-header">
-            <span>Write</span>
-            <label>Editor
-              <select id="editor-mode">
-                <option value="simple">Simple</option>
-                <option value="markdown">Markdown tools</option>
-              </select>
-            </label>
+            <div class="editor-tabs"><button type="button" id="editor-write" aria-pressed="true">Write</button><button type="button" id="editor-preview" aria-pressed="false">Preview</button></div>
           </div>
-          <div id="editor-tools" class="editor-tools" hidden>
+          <div id="editor-tools" class="editor-tools">
             <button type="button" data-markdown="bold" aria-label="Bold">B</button>
             <button type="button" data-markdown="italic" aria-label="Italic">I</button>
             <button type="button" data-markdown="code" aria-label="Code">&lt;/&gt;</button>
@@ -47,12 +43,20 @@
             <button type="button" data-markdown="quote" aria-label="Quote">Quote</button>
             <button type="button" data-markdown="list" aria-label="List">List</button>
           </div>
-          <textarea id="comment-body" rows="4" maxlength="16000" placeholder="Leave a comment"></textarea>
+          <textarea id="comment-body" rows="7" maxlength="16000" placeholder="Leave a comment"></textarea>
+          <div id="comment-preview" class="comment-preview markdown-body" hidden></div>
           <small>Markdown is supported. Content is rendered using GitHub's sanitized Markdown HTML.</small>
         </div>
         <button id="comment-submit" type="submit">Sign in and comment</button>
         <button id="clear-reply" type="button" hidden>Cancel reply</button>
       </form>
+      <dialog id="authentication-dialog" class="authentication-dialog" aria-labelledby="authentication-title">
+        <form method="dialog"><button class="dialog-close" aria-label="Close" title="Close">×</button></form>
+        <h2 id="authentication-title">Sign in to continue</h2>
+        <p id="authentication-message"></p>
+        <p class="auth-explanation">Why sign in? <span class="info-icon" tabindex="0" aria-label="About authentication">ⓘ<span class="info-tooltip">Your GitHub account identifies your votes and comments. You authorize access in a GitHub window; this page never asks for your password.</span></span></p>
+        <button id="authentication-continue" type="button">Log in with GitHub</button>
+      </dialog>
       <p id="status" role="status">Loading…</p>
     </main>
     <script src="{{EXAMPLE_SCRIPT}}"></script>

@@ -5,4 +5,4 @@ SET
     locked = ?,
     updated_at = ?,
     fetched_at = ?
-WHERE id = ?
+WHERE id = ? AND fetched_at <= ?

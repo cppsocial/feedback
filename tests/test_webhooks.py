@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 from dataclasses import replace
+from typing import cast
 
 import httpx
 import pytest
@@ -24,12 +25,18 @@ def test_signed_pin_event_logs_and_expires_category_snapshot(
     site = config.sites["cpp-social"]
     configured = replace(
         config,
-        sites={"cpp-social": replace(site, intents=frozenset({"votes", "category_pins"}))},
+        sites={
+            "cpp-social": replace(
+                site,
+                intents=frozenset({"votes", "reactions", "category_pins"}),
+                reaction_counters=("HEART",),
+            )
+        },
     )
     secret = b"webhook-test-secret"
     http = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200)))
     pins = CategoryPinRefresher(http, clock=lambda: 1000)
-    app = create_app(configured, pins=pins, webhook_secret=secret)
+    app = create_app(configured, pins=pins, webhook_secret=secret, clock=lambda: 2001)
     payload = {
         "action": "pinned",
         "repository": {"full_name": "cppsocial/site"},
@@ -51,6 +58,16 @@ def test_signed_pin_event_logs_and_expires_category_snapshot(
     caplog.set_level(logging.INFO, logger="feedback.webhook")
     with TestClient(app) as client:
         database = app.state.services.databases[site.id]
+        database.put_discussion(
+            resource_id="resource",
+            category_key="resources",
+            lookup_term="resource",
+            node_id="D_3",
+            number=3,
+            title="resource",
+            url="https://github.com/cppsocial/site/discussions/3",
+            fetched_at=1000,
+        )
         database.replace_category_pins("resources", {3}, None, 1000)
         assert client.post("/v1/github/webhook", content=body, headers=headers).status_code == 204
         assert database.pin_snapshot("resources") == (0, None)
@@ -64,7 +81,26 @@ def test_signed_pin_event_logs_and_expires_category_snapshot(
             ).status_code
             == 401
         )
-        comment_payload = {**payload, "action": "created"}
+        comment_payload = {
+            **payload,
+            "action": "created",
+            "discussion": {
+                **cast(dict[str, object], payload["discussion"]),
+                "locked": False,
+                "updated_at": "1970-01-01T00:33:20Z",
+                "reactions": {
+                    "+1": 2,
+                    "-1": 1,
+                    "laugh": 0,
+                    "hooray": 0,
+                    "confused": 0,
+                    "heart": 3,
+                    "rocket": 0,
+                    "eyes": 0,
+                    "total_count": 6,
+                },
+            },
+        }
         comment_body = json.dumps(comment_payload).encode()
         comment_headers = {
             **headers,
@@ -79,6 +115,36 @@ def test_signed_pin_event_logs_and_expires_category_snapshot(
             ).status_code
             == 204
         )
+        counts = database.reactions(["resource"])["resource"]
+        assert (counts.up, counts.down, counts.reactions, counts.fetched_at) == (
+            2,
+            1,
+            {"HEART": 3},
+            2001,
+        )
+        older_discussion = cast(dict[str, object], comment_payload["discussion"])
+        older_reactions = cast(dict[str, object], older_discussion["reactions"])
+        older_body = json.dumps(
+            {
+                **comment_payload,
+                "discussion": {
+                    **older_discussion,
+                    "updated_at": "1970-01-01T00:33:19Z",
+                    "reactions": {**older_reactions, "+1": 0, "total_count": 4},
+                },
+            }
+        ).encode()
+        older_headers = {
+            **comment_headers,
+            "x-github-delivery": "12345678-1234-1234-1234-123456789ac0",
+            "x-hub-signature-256": "sha256="
+            + hmac.new(secret, older_body, hashlib.sha256).hexdigest(),
+        }
+        assert (
+            client.post("/v1/github/webhook", content=older_body, headers=older_headers).status_code
+            == 204
+        )
+        assert database.reactions(["resource"])["resource"].up == 2
         ping_body = b'{"zen":"ready"}'
         ping_headers = {
             **headers,
@@ -110,5 +176,10 @@ def test_signed_pin_event_logs_and_expires_category_snapshot(
         assert database.pin_snapshot("resources") == (1000, None)
     assert "action=pinned" in caplog.text
     assert "category='Resources'" in caplog.text
+    assert "pin_snapshots_expired=1 counter_snapshots_updated=0" in caplog.text
     assert "event=discussion_comment action=created" in caplog.text
+    assert (
+        "content_caches_removed=0 pin_snapshots_expired=0 counter_snapshots_updated=1"
+        in caplog.text
+    )
     assert "event=ping" in caplog.text

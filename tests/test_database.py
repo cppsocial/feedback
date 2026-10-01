@@ -49,6 +49,7 @@ def test_counter_constraints_and_reaction_refresh_are_atomic(tmp_path: Path) -> 
         url="https://example.test/a",
         up=2,
         reactions={"HEART": 3},
+        fetched_at=0,
     )
     assert database.reactions(["a"])["a"].reactions == {"HEART": 3}
     assert database.update_reactions(
@@ -91,3 +92,49 @@ def test_reaction_cascade_only_follows_discussion_deletion(tmp_path: Path) -> No
         )
         connection.execute("DELETE FROM discussions WHERE id = ?", ("D_a",))
         assert connection.execute("SELECT count(*) FROM reactions").fetchone()[0] == 0
+
+
+def test_webhook_snapshot_rejects_older_delivery_and_inflight_refresh(tmp_path: Path) -> None:
+    database = SiteDatabase(tmp_path / "site.sqlite3")
+    database.migrate()
+    database.put_discussion(
+        resource_id="a",
+        lookup_term="a",
+        node_id="D_a",
+        number=1,
+        title="A",
+        url="https://example.test/a",
+        fetched_at=1000,
+    )
+    assert database.update_webhook_reactions(
+        node_id="D_a",
+        number=1,
+        thumbsup=2,
+        thumbsdown=1,
+        reactions={"HEART": 3},
+        locked=False,
+        updated_at=2000,
+        fetched_at=2001,
+    )
+    assert not database.update_webhook_reactions(
+        node_id="D_a",
+        number=1,
+        thumbsup=0,
+        thumbsdown=0,
+        reactions={},
+        locked=False,
+        updated_at=1999,
+        fetched_at=2002,
+    )
+    assert not database.update_reactions(
+        node_id="D_a",
+        thumbsup=0,
+        thumbsdown=0,
+        reactions={},
+        locked=False,
+        updated_at=1999,
+        fetched_at=2002,
+        started_at=1998,
+    )
+    counts = database.reactions(["a"])["a"]
+    assert (counts.up, counts.down, counts.reactions) == (2, 1, {"HEART": 3})

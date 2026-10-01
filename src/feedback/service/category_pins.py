@@ -54,7 +54,7 @@ class CategoryPinRefresher:
 
     def invalidate(
         self, site: SiteConfig, database: SiteDatabase, category_name: str | None
-    ) -> None:
+    ) -> int:
         categories = [
             category.key
             for category in site.categories.values()
@@ -62,11 +62,13 @@ class CategoryPinRefresher:
         ]
         if not categories:
             categories = list(site.categories)
+        expired = 0
         for category in categories:
             identity = (site.id, category)
             self._generation[identity] = self._generation.get(identity, 0) + 1
             self._retry_after.pop(identity, None)
-            database.expire_category_pins(category)
+            expired += database.expire_category_pins(category)
+        return expired
 
     async def refresh_stale(
         self, site: SiteConfig, database: SiteDatabase, keys: list[str]

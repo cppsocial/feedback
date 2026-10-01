@@ -164,12 +164,14 @@ class SiteDatabase:
                 (fetched_at, category_key),
             )
 
-    def expire_category_pins(self, category_key: str) -> None:
+    def expire_category_pins(self, category_key: str) -> bool:
         with self.connect() as connection:
-            connection.execute(
-                "UPDATE category_pin_snapshots SET fetched_at = 0 WHERE category_key = ?",
+            cursor = connection.execute(
+                "UPDATE category_pin_snapshots SET fetched_at = 0 "
+                "WHERE category_key = ? AND fetched_at != 0",
                 (category_key,),
             )
+        return cursor.rowcount == 1
 
     def put_discussion(
         self,
@@ -225,11 +227,20 @@ class SiteDatabase:
         locked: bool,
         updated_at: int | None,
         fetched_at: int,
+        started_at: int | None = None,
     ) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
                 UPDATE_REACTIONS,
-                (thumbsup, thumbsdown, locked, updated_at, fetched_at, node_id),
+                (
+                    thumbsup,
+                    thumbsdown,
+                    locked,
+                    updated_at,
+                    fetched_at,
+                    node_id,
+                    fetched_at if started_at is None else started_at,
+                ),
             )
             if cursor.rowcount == 1:
                 connection.execute(
@@ -243,3 +254,42 @@ class SiteDatabase:
                     [(node_id, name, count, fetched_at) for name, count in reactions.items()],
                 )
         return cursor.rowcount == 1
+
+    def update_webhook_reactions(
+        self,
+        *,
+        node_id: str,
+        number: int,
+        thumbsup: int,
+        thumbsdown: int,
+        reactions: dict[str, int],
+        locked: bool,
+        updated_at: int,
+        fetched_at: int,
+    ) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE discussions SET thumbsup = ?, thumbsdown = ?, locked = ?, "
+                "updated_at = ?, fetched_at = ? WHERE id = ? AND number = ? "
+                "AND fetched_at < ? AND (updated_at IS NULL OR updated_at <= ?)",
+                (
+                    thumbsup,
+                    thumbsdown,
+                    locked,
+                    updated_at,
+                    fetched_at,
+                    node_id,
+                    number,
+                    updated_at,
+                    updated_at,
+                ),
+            )
+            if cursor.rowcount != 1:
+                return False
+            connection.execute("DELETE FROM reactions WHERE object_id = ?", (node_id,))
+            connection.executemany(
+                "INSERT INTO reactions (object_id, reaction, count, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                [(node_id, name, count, fetched_at) for name, count in reactions.items()],
+            )
+        return True

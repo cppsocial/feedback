@@ -9,6 +9,7 @@ import {
   viewerSubjectStates,
 } from "../protocol/github.js";
 import type { Reaction, ViewerSubjectState } from "../protocol/github.js";
+import { marked } from "marked";
 
 const parameters = new URLSearchParams(location.search);
 const site = parameters.get("site") ?? "feedback-cpp-social";
@@ -38,6 +39,8 @@ const client = new FeedbackClient({ apiOrigin, site });
 const authentication = new Authentication({ site, callbackOrigin: location.origin, service: client });
 const status = required("status");
 let replyTo: { key: string; id: string } | undefined;
+let replyOrder: "oldest" | "newest" = "oldest";
+const authDialogEnabled = parameters.get("authDialog") !== "off";
 let selectedKey = keys[0] ?? "";
 let cardViewerStates = new Map<string, ViewerSubjectState>();
 let counterSnapshot: ReadonlyMap<string, ReactionState> | undefined;
@@ -59,23 +62,47 @@ const authenticationStatus = createAuthenticationStatus({
   onError: (error) => { status.textContent = error instanceof Error ? error.message : "Authentication failed."; },
   onChange: () => { updateAuthenticationUi(); void render(); },
 });
+const commentForm = required("comment-form") as HTMLFormElement;
+const commentHome = commentForm.parentElement;
+if (!commentHome) throw new Error("Comment form has no parent");
+const statusAnchor = required("status");
+const returnEditor = (): void => {
+  replyTo = undefined;
+  required("clear-reply").hidden = true;
+  commentHome.insertBefore(commentForm, statusAnchor);
+};
+const orderControl = required("reply-order") as HTMLSelectElement;
+orderControl.addEventListener("change", () => {
+  replyOrder = orderControl.value === "newest" ? "newest" : "oldest";
+  void render();
+});
+required("compose-on-top").addEventListener("change", () => {
+  returnEditor();
+  void render();
+});
 required("comment-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void submitComment();
 });
-const editorMode = required("editor-mode") as HTMLSelectElement;
 const editorTools = required("editor-tools");
-try {
-  editorMode.value = localStorage.getItem("feedback.editorMode") === "markdown" ? "markdown" : "simple";
-} catch {
-  editorMode.value = "simple";
-}
-const updateEditor = (): void => { editorTools.hidden = editorMode.value !== "markdown"; };
-editorMode.addEventListener("change", () => {
-  updateEditor();
-  try { localStorage.setItem("feedback.editorMode", editorMode.value); } catch { /* Optional preference. */ }
-});
-updateEditor();
+const editorBody = required("comment-body") as HTMLTextAreaElement;
+const editorPreview = required("comment-preview");
+const showPreview = (preview: boolean): void => {
+  editorBody.hidden = preview;
+  editorTools.hidden = preview;
+  editorPreview.hidden = !preview;
+  required("editor-write").setAttribute("aria-pressed", String(!preview));
+  required("editor-preview").setAttribute("aria-pressed", String(preview));
+  if (preview) {
+    const template = document.createElement("template");
+    template.innerHTML = marked.parse(editorBody.value, { async: false });
+    sanitizeGithubHtml(template.content);
+    editorPreview.replaceChildren(template.content);
+    if (!editorBody.value.trim()) editorPreview.textContent = "Nothing to preview yet.";
+  }
+};
+required("editor-write").addEventListener("click", () => { showPreview(false); });
+required("editor-preview").addEventListener("click", () => { showPreview(true); });
 editorTools.addEventListener("click", (event) => {
   const button = (event.target as Element).closest<HTMLButtonElement>("button[data-markdown]");
   if (!button) return;
@@ -94,8 +121,7 @@ editorTools.addEventListener("click", (event) => {
   textarea.focus();
 });
 required("clear-reply").addEventListener("click", () => {
-  replyTo = undefined;
-  required("clear-reply").hidden = true;
+  returnEditor();
 });
 const commentKey = required("comment-key") as HTMLSelectElement;
 for (const key of keys) {
@@ -107,8 +133,7 @@ for (const key of keys) {
 commentKey.value = selectedKey;
 commentKey.addEventListener("change", () => {
   selectedKey = commentKey.value;
-  replyTo = undefined;
-  required("clear-reply").hidden = true;
+  returnEditor();
   void render();
 });
 configureVisibilityButton("toggle-title", "title", "title");
@@ -137,15 +162,12 @@ async function submitComment(): Promise<void> {
   if (!textarea.value.trim()) return;
   submit.disabled = true;
   try {
-    let token = authentication.token();
-    token ??= await authentication.authenticate();
-    authenticationStatus.refresh();
-    updateAuthenticationUi();
+    const token = await requireAuthentication("Sign in to post your comment or reply.");
     const key = replyTo?.key ?? commentKey.value;
     await client.addComment(key, textarea.value, token, replyTo?.id);
     textarea.value = "";
-    replyTo = undefined;
-    required("clear-reply").hidden = true;
+    returnEditor();
+    showPreview(false);
     status.textContent = "Comment posted. Refreshing the thread…";
     threadSnapshots.delete(key);
     await render(true);
@@ -227,7 +249,12 @@ async function render(force = false): Promise<void> {
         appendText(article, "p", error instanceof FeedbackError ? error.code : "Unable to load thread.");
       }
     }
+    if (commentForm.parentElement !== commentHome) returnEditor();
     root.replaceChildren(rendered);
+    if ((required("compose-on-top") as HTMLInputElement).checked) {
+      const heading = root.querySelector(".comments-heading");
+      if (heading) heading.after(commentForm);
+    }
     status.textContent = contentError === undefined ? "Ready." : "Counters loaded; discussions unavailable.";
   } catch (error) {
     status.textContent = error instanceof FeedbackError ? error.code : "Unable to load discussions.";
@@ -291,12 +318,13 @@ async function react(key: string, reaction: Reaction, selected: boolean): Promis
     button.disabled = true;
   }
   try {
-    const token = authentication.token() ?? await authentication.authenticate();
+    const token = await requireAuthentication("Sign in to react to this discussion.");
     authenticationStatus.refresh();
     updateAuthenticationUi();
     const state = (await client.reactions([key])).get(key);
     if (!state?.id) throw new Error("Create the discussion with a vote before reacting.");
-    const result = await setReaction(token, state.id, reaction, !selected);
+    const currentSelected = cardViewerStates.get(state.id)?.reactions.has(reaction) ?? selected;
+    const result = await setReaction(token, state.id, reaction, !currentSelected);
     const override = counterOverride(key);
     override.reactions.set(reaction, { count: result.count, selected: result.viewerHasReacted });
     if (counterSnapshot) renderRankingCards(applyCounterOverrides(counterSnapshot));
@@ -366,8 +394,8 @@ function renderDiscussion(
   const commentsContainer = record(content.comments);
   const comments = commentsContainer?.nodes;
   if (Array.isArray(comments)) {
-    appendText(root, "h3", `${String(integer(commentsContainer?.totalCount))} comments`);
-    for (const comment of comments) {
+    appendText(root, "h3", `${String(integer(commentsContainer?.totalCount))} comments`, "comments-heading");
+    for (const comment of sortedComments(comments)) {
       const value = record(comment);
       if (value) root.append(renderComment(key, value, 0));
     }
@@ -379,7 +407,7 @@ async function vote(key: string, direction: "up" | "down"): Promise<void> {
   pendingVotes.add(key);
   setCardPending(key, true);
   try {
-    const token = authentication.token() ?? await authentication.authenticate();
+    const token = await requireAuthentication("Sign in to vote on this discussion.");
     const state = (await client.reactions([key])).get(key);
     if (!state?.id) {
       const resourceUrl = new URL(location.href);
@@ -527,6 +555,7 @@ function renderPoll(parent: HTMLElement, poll: Record<string, unknown> | null): 
 function renderComment(key: string, comment: Record<string, unknown>, depth: number): HTMLElement {
   const article = document.createElement("article");
   article.className = depth === 0 ? "comment" : "comment reply";
+  if (typeof comment.id === "string") article.dataset.commentId = comment.id;
   if (typeof comment.deletedAt === "string") {
     appendText(article, "p", "This comment was deleted.");
     return article;
@@ -545,7 +574,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   footer.className = "comment-footer";
   const footerActions = document.createElement("div");
   footerActions.className = "comment-footer-actions";
-  if (depth === 0 && typeof comment.id === "string") {
+  if (typeof comment.id === "string") {
     const reply = document.createElement("button");
     reply.type = "button";
     reply.textContent = "Reply";
@@ -553,6 +582,8 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
       replyTo = { key, id: comment.id as string };
       commentKey.value = key;
       required("clear-reply").hidden = false;
+      footer.after(commentForm);
+      showPreview(false);
       required("comment-body").focus();
     });
     footerActions.append(reply);
@@ -586,7 +617,7 @@ function renderComment(key: string, comment: Record<string, unknown>, depth: num
   article.append(footer);
   const replies = record(comment.replies)?.nodes;
   if (Array.isArray(replies)) {
-    for (const reply of replies) {
+    for (const reply of sortedComments(replies)) {
       const value = record(reply);
       if (value) article.append(renderComment(key, value, depth + 1));
     }
@@ -642,7 +673,9 @@ function subjectReactionControls(
       pending = true;
       renderControls();
       void authenticateAndRun(async (token) => {
-        const result = await setReaction(token, subjectId, state.reaction, !state.selected);
+        const current = (await viewerSubjectStates(token, [subjectId])).get(subjectId);
+        const selected = current?.reactions.has(state.reaction) ?? state.selected;
+        const result = await setReaction(token, subjectId, state.reaction, !selected);
         states.set(state.reaction, {
           reaction: state.reaction,
           count: result.count,
@@ -690,6 +723,9 @@ function subjectVoteControls(
       pending = true;
       refresh();
       void authenticateAndRun(async (token) => {
+        const current = (await viewerSubjectStates(token, [subjectId])).get(subjectId);
+        upSelected = current?.reactions.has("THUMBS_UP") ?? upSelected;
+        downSelected = current?.reactions.has("THUMBS_DOWN") ?? downSelected;
         const reaction = direction === "up" ? "THUMBS_UP" : "THUMBS_DOWN";
         const other = direction === "up" ? "THUMBS_DOWN" : "THUMBS_UP";
         const otherSelected = direction === "up" ? downSelected : upSelected;
@@ -715,15 +751,60 @@ async function authenticateAndRun(
   action: (token: NonNullable<ReturnType<Authentication["token"]>>) => Promise<void>,
 ): Promise<void> {
   try {
-    const token = authentication.token() ?? await authentication.authenticate();
-    authenticationStatus.refresh();
-    updateAuthenticationUi();
+    const token = await requireAuthentication("Sign in to vote or react on GitHub.");
     await action(token);
+    await render(true);
     status.textContent = "Updated on GitHub.";
   } catch (error) {
     console.error("GitHub interaction failed", error);
     status.textContent = error instanceof Error ? error.message : "GitHub interaction failed.";
   }
+}
+
+function sortedComments(values: unknown[]): unknown[] {
+  return [...values].sort((left, right) => {
+    const a = Date.parse(string(record(left)?.createdAt)) || 0;
+    const b = Date.parse(string(record(right)?.createdAt)) || 0;
+    return replyOrder === "newest" ? b - a : a - b;
+  });
+}
+
+async function requireAuthentication(message: string): Promise<NonNullable<ReturnType<Authentication["token"]>>> {
+  const existing = authentication.token();
+  if (existing) return existing;
+  if (authDialogEnabled) {
+    const dialog = required("authentication-dialog") as HTMLDialogElement;
+    required("authentication-message").textContent = message;
+    await new Promise<void>((resolve, reject) => {
+      const button = required("authentication-continue") as HTMLButtonElement;
+      let started = false;
+      const close = (): void => {
+        dialog.removeEventListener("close", close);
+        button.onclick = null;
+        if (!started) reject(new Error("Sign in was cancelled."));
+      };
+      button.onclick = () => {
+        started = true;
+        dialog.close();
+        resolve();
+      };
+      dialog.addEventListener("close", close);
+      dialog.showModal();
+    });
+  }
+  const token = await authentication.authenticate();
+  authenticationStatus.refresh();
+  updateAuthenticationUi();
+  const activeReply = replyTo;
+  await render(true);
+  if (activeReply) {
+    replyTo = activeReply;
+    required("clear-reply").hidden = false;
+    const replyArticle = [...document.querySelectorAll<HTMLElement>(".comment[data-comment-id]")]
+      .find((article) => article.dataset.commentId === activeReply.id);
+    replyArticle?.querySelector(".comment-footer")?.after(commentForm);
+  }
+  return token;
 }
 
 function renderMissingDiscussion(

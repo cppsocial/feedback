@@ -43,6 +43,7 @@ class ReactionRefresher:
         refreshed = 0
         for offset in range(0, len(node_ids), self._chunk_size):
             chunk = node_ids[offset : offset + self._chunk_size]
+            started_at = int(self._clock())
             data = await self._github.graphql(
                 site.installation_id,
                 _NODES_QUERY,
@@ -66,6 +67,7 @@ class ReactionRefresher:
                     locked=locked,
                     updated_at=updated_at,
                     fetched_at=fetched_at,
+                    started_at=started_at,
                 )
         return refreshed
 

@@ -37,6 +37,26 @@ void test("discussion content requests exactly one key", async () => {
   assert.equal(content.discussion.id, "D_example");
 });
 
+void test("discussion content uses one-key legacy request while an older API is deployed", async () => {
+  const requested: string[] = [];
+  const fetch = (input: URL | RequestInfo): Promise<Response> => {
+    const url = input instanceof Request ? input.url : input.toString();
+    requested.push(url);
+    return Promise.resolve(url.includes("?key=")
+      ? Response.json({ v: 1, error: { code: "invalid_keys", message: "keys required" } }, { status: 400 })
+      : Response.json({ v: 1, items: { "feedback/example": { id: "D_example" } } }));
+  };
+  const client = new FeedbackClient({ apiOrigin: "https://feedback-api.cpp.social", site: "cpp-social", fetch });
+
+  const content = await client.discussionContent("feedback/example");
+
+  assert.equal(content.discussion.id, "D_example");
+  assert.deepEqual(requested, [
+    "https://feedback-api.cpp.social/v1/sites/cpp-social/discussion?key=feedback%2Fexample",
+    "https://feedback-api.cpp.social/v1/sites/cpp-social/discussion?keys=feedback%2Fexample",
+  ]);
+});
+
 void test("OAuth transport sends JSON only to the configured site", async () => {
   const requests: Request[] = [];
   const fetch = (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {

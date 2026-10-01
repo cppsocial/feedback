@@ -168,7 +168,22 @@ export class FeedbackClient {
     url.searchParams.set("key", key);
     const init: RequestInit = { headers: { Accept: "application/json" } };
     if (signal) init.signal = signal;
-    const response = await this.#fetch(url, init);
+    let response = await this.#fetch(url, init);
+    if (response.status === 400 && await errorCode(response.clone()) === "invalid_keys") {
+      // Older deployed APIs use `keys`; send only this one key during rollout.
+      url.searchParams.delete("key");
+      url.searchParams.set("keys", key);
+      response = await this.#fetch(url, init);
+      if (!response.ok) throw new FeedbackError(response.status, await errorCode(response));
+      const legacy: unknown = await response.json();
+      const items = legacy && typeof legacy === "object" ? (legacy as { items?: unknown }).items : undefined;
+      const discussion = items && typeof items === "object"
+        ? (items as Record<string, unknown>)[key] : undefined;
+      if (!discussion || typeof discussion !== "object" || Array.isArray(discussion)) {
+        throw new TypeError("Invalid discussion content response");
+      }
+      return { discussion: discussion as Record<string, unknown>, comments: [] };
+    }
     if (!response.ok) throw new FeedbackError(response.status, await errorCode(response));
     const payload: unknown = await response.json();
     if (!payload || typeof payload !== "object" || (payload as { v?: unknown }).v !== 1) {
